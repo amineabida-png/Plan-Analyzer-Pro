@@ -1,0 +1,12 @@
+# nixpacks.toml — configuration de build pour Railway
+#
+# Le token "..." conserve les paquets détectés automatiquement (Python, pip…)
+# et y AJOUTE libredwg, qui fournit le binaire « dwg2dxf ».
+# Grâce à lui, la conversion DWG -> DXF devient possible directement dans le cloud :
+# l'application détecte dwg2dxf sur le PATH et l'utilise automatiquement.
+#
+# Pour DÉSACTIVER (revenir à l'état précédent) : supprimez ce fichier et
+# refaites un git push. L'app continuera d'accepter les DXF normalement.
+
+[phases.setup]
+nixPkgs = ["...", "libredwg"]

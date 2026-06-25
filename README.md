@@ -34,13 +34,13 @@ Analyse automatique de plans de construction **vectoriels (DXF)** et génératio
 
 ### Lecture des fichiers DWG
 
-Le DWG est un format propriétaire ; sa lecture passe par une conversion en DXF
-via **ODA File Converter** (gratuit). Deux cas :
+Le DWG est un format propriétaire ; sa lecture passe par une conversion en DXF.
+L'application sait le faire de deux façons.
 
-**a) En local (recommandé pour le DWG)** — installez ODA File Converter une fois :
-https://www.opendesign.com/guestfiles/oda_file_converter
-Ensuite, glissez directement un `.dwg` dans l'application : la conversion est
-automatique. Vous pouvez aussi convertir un dossier entier en lot :
+**a) En local (le plus fiable) — via ODA File Converter (gratuit)**
+Installez-le une fois : https://www.opendesign.com/guestfiles/oda_file_converter
+Ensuite, glissez directement un `.dwg` dans l'application : conversion automatique.
+Conversion d'un dossier entier en lot :
 
 ```cmd
 python tools\convertir_dwg.py "C:\chemin\vers\dossier_dwg"
@@ -48,9 +48,19 @@ python tools\convertir_dwg.py "C:\chemin\vers\dossier_dwg"
 
 (ou double-cliquez sur `tools\convertir_dwg.bat`)
 
-**b) Sur Railway (cloud)** — l'hébergement ne dispose pas du convertisseur :
-convertissez vos `.dwg` en `.dxf` en local (méthode ci-dessus), puis importez
-le `.dxf`. Les `.dxf` fonctionnent partout, directement.
+**b) Dans le cloud (Railway) — via LibreDWG**
+Le fichier `nixpacks.toml` installe **LibreDWG** (100 % libre) au build Railway, ce
+qui fournit le convertisseur `dwg2dxf`. L'application le détecte automatiquement et
+le DWG fonctionne alors directement en ligne.
+LibreDWG est un peu moins fidèle qu'ODA sur les plans très complexes ; en cas
+d'échec de conversion, l'app affiche un message clair (elle ne plante pas).
+
+> Pour revenir en arrière : supprimez `nixpacks.toml` et refaites `git push`.
+> L'app continuera d'accepter les DXF normalement.
+
+**c) Conversion manuelle depuis AutoCAD (sans rien installer)**
+Ouvrez le DWG dans AutoCAD → *Enregistrer sous* → format **AutoCAD DXF (\*.dxf)**,
+puis importez le `.dxf`. Les `.dxf` fonctionnent partout, directement.
 
 > L'interface affiche automatiquement si la conversion DWG est active
 > (endpoint `/api/capabilities`).
@@ -172,7 +182,8 @@ plan-analyzer-pro/
 ├── samples/                     Plan DXF de test + générateur
 ├── requirements.txt            Dépendances Python
 ├── Procfile                    Commande de démarrage
-├── railway.json                Config Railway
+├── railway.json                Config Railway (déploiement)
+├── nixpacks.toml               Build Railway + LibreDWG (DWG cloud)
 ├── runtime.txt                 Version Python
 ├── .gitignore
 └── .env.example
