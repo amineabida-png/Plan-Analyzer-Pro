@@ -15,7 +15,23 @@ from .dxf_reader import LectureDXF
 from .element_detector import DetecteurOuvrages
 from .room_detector import DetecteurPieces
 from .quantity_calculator import CalculateurMetre
+from .dwg_converter import convertir_dwg_en_dxf
 from .models import RapportAnalyse
+
+
+def analyser_fichier(chemin: str, hsp_m: float = 2.70) -> RapportAnalyse:
+    """
+    Analyse un fichier DWG ou DXF.
+    Si le fichier est un DWG, il est d'abord converti en DXF automatiquement.
+    """
+    ext = os.path.splitext(chemin)[1].lower()
+    if ext == ".dwg":
+        chemin_dxf = convertir_dwg_en_dxf(chemin)
+        rapport = analyser_dxf(chemin_dxf, hsp_m=hsp_m)
+        # On conserve le nom du fichier d'origine dans le rapport
+        rapport.fichier = chemin
+        return rapport
+    return analyser_dxf(chemin, hsp_m=hsp_m)
 
 
 def analyser_dxf(chemin: str, hsp_m: float = 2.70) -> RapportAnalyse:

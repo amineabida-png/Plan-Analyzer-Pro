@@ -19,17 +19,41 @@ Analyse automatique de plans de construction **vectoriels (DXF)** et génératio
 
 ## 1. Ce que fait l'application
 
-- Importe un fichier **.dxf**
+- Importe un fichier **.dxf** ou **.dwg** (DWG converti automatiquement)
 - Détecte automatiquement l'**unité** du dessin et les **calques**
 - Classe les **ouvrages** (murs ext., cloisons, poteaux, portes, fenêtres, pièces)
 - **Détecte les pièces** par fermeture topologique des murs (Shapely) et calcule
   leurs **surfaces** : habitable, carrelage, plafond, peinture murs
 - Calcule un **métré** (longueurs, surfaces, comptages, volume béton estimé)
+- Chiffrage en **dirham marocain (DH)**
 - Export **Excel** (feuilles Métré + Pièces, avec formules) + rapport **JSON**
 - Interface web d'upload + API REST
 
-> Étape actuelle : socle **vectoriel**. Les fichiers DWG, PDF/scans et l'IA Groq
+> Étape actuelle : socle **vectoriel** (DXF + DWG). Les PDF/scans et l'IA Groq
 > arrivent dans les étapes suivantes.
+
+### Lecture des fichiers DWG
+
+Le DWG est un format propriétaire ; sa lecture passe par une conversion en DXF
+via **ODA File Converter** (gratuit). Deux cas :
+
+**a) En local (recommandé pour le DWG)** — installez ODA File Converter une fois :
+https://www.opendesign.com/guestfiles/oda_file_converter
+Ensuite, glissez directement un `.dwg` dans l'application : la conversion est
+automatique. Vous pouvez aussi convertir un dossier entier en lot :
+
+```cmd
+python tools\convertir_dwg.py "C:\chemin\vers\dossier_dwg"
+```
+
+(ou double-cliquez sur `tools\convertir_dwg.bat`)
+
+**b) Sur Railway (cloud)** — l'hébergement ne dispose pas du convertisseur :
+convertissez vos `.dwg` en `.dxf` en local (méthode ci-dessus), puis importez
+le `.dxf`. Les `.dxf` fonctionnent partout, directement.
+
+> L'interface affiche automatiquement si la conversion DWG est active
+> (endpoint `/api/capabilities`).
 
 ---
 
@@ -140,9 +164,11 @@ plan-analyzer-pro/
 │   ├── quantity_calculator.py   Calcul du métré
 │   ├── export_excel.py          Export Excel
 │   ├── room_detector.py         Détection des pièces (Shapely)
+│   ├── dwg_converter.py         Conversion DWG -> DXF (ODA / LibreDWG)
 │   ├── analyse.py               Orchestrateur du pipeline
 │   └── models.py                Modèles de données typés
 ├── static/index.html           Interface web d'upload
+├── tools/                       Convertisseur DWG en lot (local Windows)
 ├── samples/                     Plan DXF de test + générateur
 ├── requirements.txt            Dépendances Python
 ├── Procfile                    Commande de démarrage
@@ -160,8 +186,9 @@ plan-analyzer-pro/
 |---------|------------------------|----------------------------------------|
 | GET     | `/`                    | Interface web d'upload                 |
 | GET     | `/health`              | Sonde de santé (Railway)               |
-| POST    | `/api/analyze`         | Analyse un DXF → métré JSON            |
-| POST    | `/api/analyze/excel`   | Analyse un DXF → fichier Excel        |
+| POST    | `/api/analyze`         | Analyse un DXF/DWG → métré JSON        |
+| POST    | `/api/analyze/excel`   | Analyse un DXF/DWG → fichier Excel    |
+| GET     | `/api/capabilities`    | Indique si la conversion DWG est active |
 
 Exemple (curl) :
 

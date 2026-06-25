@@ -66,10 +66,10 @@
 
     <div class="card">
       <div class="drop" id="drop">
-        <p>Glissez un fichier <strong>.dxf</strong> ici, ou cliquez pour parcourir</p>
+        <p>Glissez un fichier <strong>.dxf</strong> ou <strong>.dwg</strong> ici, ou cliquez pour parcourir</p>
         <p class="sub" id="fname">Aucun fichier sélectionné</p>
       </div>
-      <input type="file" id="file" accept=".dxf" />
+      <input type="file" id="file" accept=".dxf,.dwg" />
       <div class="row">
         <label class="f">Hauteur sous plafond (m)
           <input type="number" id="hsp" value="2.70" step="0.05" min="2" max="5" />
@@ -78,6 +78,7 @@
         <button id="xls" class="ghost hidden">Télécharger Excel</button>
         <span id="status" class="sub"></span>
       </div>
+      <p class="sub" id="dwgnote" style="margin-top:.8rem"></p>
     </div>
 
     <div class="card hidden" id="result">
@@ -118,9 +119,25 @@
     fileInput.addEventListener('change', () => { if (fileInput.files.length) setFile(fileInput.files[0]); });
 
     function setFile(f) {
-      if (!f.name.toLowerCase().endsWith('.dxf')) { alert('Veuillez choisir un fichier .dxf'); return; }
+      const ok = f.name.toLowerCase().endsWith('.dxf') || f.name.toLowerCase().endsWith('.dwg');
+      if (!ok) { alert('Veuillez choisir un fichier .dxf ou .dwg'); return; }
       selected = f; fname.textContent = f.name; go.disabled = false;
     }
+
+    // Vérifie si la conversion DWG est disponible sur le serveur
+    (async () => {
+      try {
+        const res = await fetch('/api/capabilities');
+        const cap = await res.json();
+        const note = document.getElementById('dwgnote');
+        if (cap.dwg) {
+          note.innerHTML = '✅ Conversion DWG active : vous pouvez glisser un .dwg directement.';
+        } else {
+          note.innerHTML = 'ℹ️ Les fichiers .dxf fonctionnent directement. Pour le .dwg, '
+            + 'installez « ODA File Converter » (gratuit) sur la machine, ou convertissez en .dxf en local.';
+        }
+      } catch (e) {}
+    })();
 
     function fd() {
       const form = new FormData();

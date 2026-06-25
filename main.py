@@ -16,7 +16,8 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from core.analyse import analyser_dxf
+from core.analyse import analyser_fichier
+from core.dwg_converter import conversion_disponible, ConversionDWGError
 from core.export_excel import exporter_excel
 
 app = FastAPI(
@@ -45,15 +46,26 @@ def accueil() -> HTMLResponse:
 @app.get("/health")
 def health() -> dict:
     """Sonde de santé pour Railway / monitoring."""
-    return {"status": "ok", "service": "plan-analyzer-pro", "version": "0.1.0"}
+    return {"status": "ok", "service": "plan-analyzer-pro", "version": "0.2.0"}
+
+
+@app.get("/api/capabilities")
+def capabilities() -> dict:
+    """Indique les capacités disponibles (ex : conversion DWG)."""
+    return {
+        "dxf": True,
+        "dwg": conversion_disponible(),
+    }
 
 
 def _sauver_temp(fichier: UploadFile) -> str:
     """Écrit l'upload dans un fichier temporaire et renvoie son chemin."""
-    if not fichier.filename or not fichier.filename.lower().endswith(".dxf"):
-        raise HTTPException(status_code=400,
-                            detail="Seuls les fichiers .dxf sont acceptés pour l'instant.")
-    suffix = ".dxf"
+    nom = (fichier.filename or "").lower()
+    if not (nom.endswith(".dxf") or nom.endswith(".dwg")):
+        raise HTTPException(
+            status_code=400,
+            detail="Formats acceptés : .dxf et .dwg.")
+    suffix = ".dwg" if nom.endswith(".dwg") else ".dxf"
     fd, chemin = tempfile.mkstemp(suffix=suffix)
     with os.fdopen(fd, "wb") as out:
         out.write(fichier.file.read())
@@ -63,11 +75,13 @@ def _sauver_temp(fichier: UploadFile) -> str:
 @app.post("/api/analyze")
 async def analyser(fichier: UploadFile = File(...),
                    hsp: float = 2.70) -> JSONResponse:
-    """Analyse un DXF et renvoie le rapport de métré complet en JSON."""
+    """Analyse un DXF ou DWG et renvoie le rapport de métré complet en JSON."""
     chemin = _sauver_temp(fichier)
     try:
-        rapport = analyser_dxf(chemin, hsp_m=hsp)
+        rapport = analyser_fichier(chemin, hsp_m=hsp)
         return JSONResponse(rapport.model_dump())
+    except ConversionDWGError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Erreur d'analyse : {e}")
     finally:
@@ -78,10 +92,10 @@ async def analyser(fichier: UploadFile = File(...),
 @app.post("/api/analyze/excel")
 async def analyser_excel(fichier: UploadFile = File(...),
                          hsp: float = 2.70) -> FileResponse:
-    """Analyse un DXF et renvoie le métré sous forme de fichier Excel."""
+    """Analyse un DXF/DWG et renvoie le métré sous forme de fichier Excel."""
     chemin = _sauver_temp(fichier)
     try:
-        rapport = analyser_dxf(chemin, hsp_m=hsp)
+        rapport = analyser_fichier(chemin, hsp_m=hsp)
         sortie = tempfile.mktemp(suffix=".xlsx")
         exporter_excel(rapport, sortie)
         return FileResponse(
@@ -89,6 +103,8 @@ async def analyser_excel(fichier: UploadFile = File(...),
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             filename="metre_plan_analyzer_pro.xlsx",
         )
+    except ConversionDWGError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Erreur d'analyse : {e}")
     finally:

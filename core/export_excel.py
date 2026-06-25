@@ -36,7 +36,7 @@ def exporter_excel(rapport: RapportAnalyse, chemin: str) -> str:
     ws["A2"].font = ws["A3"].font = Font(name=POLICE, italic=True, size=9)
 
     entetes = ["N°", "Poste", "Détail", "Quantité", "Unité",
-               "Prix Unitaire (€)", "Montant (€)"]
+               "Prix Unitaire (DH)", "Montant (DH)"]
     ligne_entete = 5
     for col, titre in enumerate(entetes, start=1):
         c = ws.cell(row=ligne_entete, column=col, value=titre)
@@ -75,9 +75,9 @@ def exporter_excel(rapport: RapportAnalyse, chemin: str) -> str:
     # Formats de nombres
     for row in range(premiere_ligne_data, derniere_ligne_data + 1):
         ws.cell(row=row, column=4).number_format = "#,##0.00"
-        ws.cell(row=row, column=6).number_format = "#,##0.00 €"
-        ws.cell(row=row, column=7).number_format = "#,##0.00 €"
-    ws.cell(row=r, column=7).number_format = "#,##0.00 €"
+        ws.cell(row=row, column=6).number_format = '#,##0.00 "DH"'
+        ws.cell(row=row, column=7).number_format = '#,##0.00 "DH"'
+    ws.cell(row=r, column=7).number_format = '#,##0.00 "DH"'
 
     # Largeurs de colonnes
     largeurs = {"A": 5, "B": 40, "C": 28, "D": 12, "E": 8, "F": 18, "G": 16}
