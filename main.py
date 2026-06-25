@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 import tempfile
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Form
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -172,14 +172,23 @@ def _sauver_temp(fichier: UploadFile) -> str:
 async def analyser(fichier: UploadFile = File(...),
                    hsp: float | None = None,
                    projet_id: int | None = None,
+                   mapping: str | None = Form(None),
                    db: Session = Depends(get_session)) -> JSONResponse:
     """
     Analyse un DXF ou DWG et renvoie le rapport de métré complet en JSON.
+    mapping : JSON {nom_calque: categorie} fourni par l'utilisateur (prioritaire).
     Si projet_id est fourni, l'analyse est sauvegardée comme nouvelle version.
     """
+    import json as _json
+    mapping_manuel = None
+    if mapping:
+        try:
+            mapping_manuel = _json.loads(mapping)
+        except Exception:  # noqa: BLE001
+            mapping_manuel = None
     chemin = _sauver_temp(fichier)
     try:
-        rapport = analyser_fichier(chemin, hsp_m=hsp)
+        rapport = analyser_fichier(chemin, hsp_m=hsp, mapping_manuel=mapping_manuel)
         rapport.fichier = fichier.filename or rapport.fichier
         resultat = rapport.model_dump()
         if projet_id is not None:

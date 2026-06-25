@@ -118,17 +118,25 @@ class DetecteurOuvrages:
             ))
 
         # --- 2. Blocs INSERT : portes et fenêtres comptés à l'unité ---
+        # IMPORTANT : on ne compte QUE les blocs dont le CALQUE est classé
+        # porte/fenêtre. Sinon, sur un vrai plan, tous les blocs (mobilier,
+        # symboles, cartouche…) seraient comptés à tort comme ouvertures.
+        # Le secours par nom de bloc ne s'applique que si AUCUN mapping n'existe.
+        a_mapping = bool(self.mapping)
         for ins in inserts:
             type_o = _type_depuis_calque(ins["calque"], self.mapping)
-            if type_o is None:
-                # secours : déduire du nom du bloc
+            if type_o not in (TypeOuvrage.PORTE, TypeOuvrage.FENETRE):
+                if a_mapping:
+                    # Mapping fourni : un bloc hors calque porte/fenêtre est ignoré.
+                    continue
+                # Pas de mapping : secours prudent par nom de bloc.
                 nom = ins["nom_bloc"].upper()
                 if "PORTE" in nom or "DOOR" in nom:
                     type_o = TypeOuvrage.PORTE
-                elif "FEN" in nom or "WINDOW" in nom:
+                elif "FENETRE" in nom or "WINDOW" in nom:
                     type_o = TypeOuvrage.FENETRE
                 else:
-                    type_o = TypeOuvrage.INCONNU
+                    continue  # bloc non pertinent : on ne le compte pas
             x, y = ins["position"]
             ouvrages.append(Ouvrage(
                 id=str(uuid.uuid4())[:8],

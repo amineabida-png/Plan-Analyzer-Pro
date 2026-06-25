@@ -23,34 +23,41 @@ HSP_DEFAUT = 2.70
 
 
 def analyser_fichier(chemin: str, hsp_m: float | None = None,
-                     utiliser_ia: bool = True) -> RapportAnalyse:
+                     utiliser_ia: bool = True,
+                     mapping_manuel: dict | None = None) -> RapportAnalyse:
     """
     Analyse un fichier DWG ou DXF.
     Si le fichier est un DWG, il est d'abord converti en DXF automatiquement.
+    mapping_manuel : classification de calques fournie par l'utilisateur
+                     (prioritaire sur l'IA).
     """
     ext = os.path.splitext(chemin)[1].lower()
     if ext == ".dwg":
         chemin_dxf = convertir_dwg_en_dxf(chemin)
-        rapport = analyser_dxf(chemin_dxf, hsp_m=hsp_m, utiliser_ia=utiliser_ia)
+        rapport = analyser_dxf(chemin_dxf, hsp_m=hsp_m, utiliser_ia=utiliser_ia,
+                               mapping_manuel=mapping_manuel)
         rapport.fichier = chemin
         return rapport
-    return analyser_dxf(chemin, hsp_m=hsp_m, utiliser_ia=utiliser_ia)
+    return analyser_dxf(chemin, hsp_m=hsp_m, utiliser_ia=utiliser_ia,
+                        mapping_manuel=mapping_manuel)
 
 
 def analyser_dxf(chemin: str, hsp_m: float | None = None,
-                 utiliser_ia: bool = True) -> RapportAnalyse:
+                 utiliser_ia: bool = True,
+                 mapping_manuel: dict | None = None) -> RapportAnalyse:
     """
     Pipeline complet d'analyse d'un fichier DXF.
 
     hsp_m : si None, l'app tente de lire la hauteur sous plafond sur le plan ;
             si absente, elle prend une valeur par défaut (à valider).
-            Si une valeur est fournie, elle est utilisée telle quelle.
-    utiliser_ia : si True et clé Groq présente, l'IA classe les calques du plan
-                  (utile pour les plans réels aux calques non conventionnels).
+    utiliser_ia : si True et clé Groq présente, l'IA pré-classe les calques.
+    mapping_manuel : {nom_calque: categorie} fourni par l'utilisateur. PRIORITAIRE.
+                     Quand il est fourni, on ne rappelle pas l'IA (gain de temps).
     """
     # 1. Lecture
     lecture = LectureDXF(chemin)
     calques = lecture.calques()
+    calques_detail = lecture.resume_calques()
 
     # 1b. Hauteur sous plafond : fournie > détectée sur le plan > défaut
     hsp_detectee = False
@@ -62,10 +69,13 @@ def analyser_dxf(chemin: str, hsp_m: float | None = None,
         else:
             hsp_m = HSP_DEFAUT
 
-    # 2. Mapping des calques par l'IA (plans réels)
+    # 2. Classification des calques : mapping manuel prioritaire, sinon IA
     mapping = {}
     message_ia = ""
-    if utiliser_ia and ai_groq.ia_disponible():
+    if mapping_manuel:
+        mapping = {k: v for k, v in mapping_manuel.items() if v and v != "autre"}
+        message_ia = f"{len(mapping)} calque(s) classé(s) manuellement."
+    elif utiliser_ia and ai_groq.ia_disponible():
         res = ai_groq.mapper_calques(calques)
         mapping = res.get("mapping", {})
         message_ia = res.get("message", "")
@@ -104,6 +114,7 @@ def analyser_dxf(chemin: str, hsp_m: float | None = None,
         facteur_vers_metre=lecture.facteur_vers_metre,
         nb_calques=len(calques),
         calques=calques,
+        calques_detail=calques_detail,
         ouvrages=ouvrages,
         pieces=pieces,
         hsp_m=hsp_m,

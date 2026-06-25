@@ -82,6 +82,23 @@
       <p class="sub" id="dwgnote" style="margin-top:.8rem"></p>
     </div>
 
+    <div class="card hidden" id="layercard">
+      <h3 style="margin-bottom:.3rem;font-size:1.05rem">Classification des calques</h3>
+      <p class="sub" style="margin-bottom:.8rem">Vérifiez et corrigez la catégorie de chaque calque (l'IA a pré-rempli). Les gros calques sont en haut. Puis recalculez.</p>
+      <div style="max-height:320px;overflow:auto;border:1px solid var(--border);border-radius:8px">
+        <table style="margin:0">
+          <thead><tr>
+            <th>Calque</th><th style="text-align:right">Entités</th>
+            <th>Type</th><th>Catégorie</th></tr></thead>
+          <tbody id="layerrows"></tbody>
+        </table>
+      </div>
+      <div class="row" style="margin-top:.9rem">
+        <button id="recalc">Recalculer le métré</button>
+        <span id="recalcstatus" class="sub"></span>
+      </div>
+    </div>
+
     <div class="card hidden" id="result">
       <div class="meta" id="rmeta"></div>
       <div id="pieces"></div>
@@ -180,8 +197,26 @@
       } catch (e) { st.textContent = 'Erreur : ' + e.message; }
     });
 
-    // Assistant IA
-    document.getElementById('ask').addEventListener('click', async () => {
+    // Recalcul avec la classification de calques validée par l'utilisateur
+    document.getElementById('recalc').addEventListener('click', async () => {
+      if (!selected) return;
+      const st = document.getElementById('recalcstatus');
+      const mapping = {};
+      document.querySelectorAll('#layerrows select').forEach(s => {
+        mapping[s.dataset.calque] = s.value;
+      });
+      st.innerHTML = '<span class="spin">Recalcul…</span>';
+      try {
+        const form = new FormData();
+        form.append('fichier', selected);
+        form.append('mapping', JSON.stringify(mapping));
+        const res = await fetch('/api/analyze?' + hspParam(), {method: 'POST', body: form});
+        if (!res.ok) throw new Error((await res.json()).detail || 'Erreur');
+        const data = await res.json();
+        render(data);
+        st.textContent = '✅ Métré recalculé avec vos calques.';
+      } catch (e) { st.textContent = 'Erreur : ' + e.message; }
+    });
       if (!lastReport) return;
       const q = document.getElementById('aiq').value.trim();
       const ans = document.getElementById('aianswer');
@@ -231,11 +266,36 @@
       URL.revokeObjectURL(url); status.textContent = '';
     });
 
+    const CATEGORIES = [
+      ["autre","— (ignorer)"],["mur_exterieur","Mur extérieur"],
+      ["mur_interieur","Mur intérieur"],["cloison","Cloison"],
+      ["poteau","Poteau"],["poutre","Poutre"],["voile","Voile"],
+      ["dalle","Dalle"],["porte","Porte"],["fenetre","Fenêtre"],["piece","Pièce (texte)"]
+    ];
     let lastReport = null;
     function render(data) {
       lastReport = data;
       result.classList.remove('hidden');
       document.getElementById('aicard').classList.remove('hidden');
+      // Tableau de classification des calques
+      const lc = document.getElementById('layercard');
+      const detail = data.calques_detail || [];
+      if (detail.length) {
+        lc.classList.remove('hidden');
+        const mapIa = data.mapping_ia || {};
+        document.getElementById('layerrows').innerHTML = detail.map(c => {
+          const cur = mapIa[c.calque] || 'autre';
+          const typ = c.blocs > c.lignes && c.blocs > c.polylignes ? 'blocs'
+                    : c.polylignes >= c.lignes ? 'polylignes' : 'lignes';
+          const opts = CATEGORIES.map(([v,l]) =>
+            `<option value="${v}"${v===cur?' selected':''}>${l}</option>`).join('');
+          return `<tr><td>${c.calque}</td>
+            <td class="num">${c.total}</td>
+            <td class="sub">${typ}</td>
+            <td><select data-calque="${c.calque}"
+              style="background:#0b1220;border:1px solid var(--border);color:var(--text);border-radius:6px;padding:.3rem">${opts}</select></td></tr>`;
+        }).join('');
+      }
       rmeta.innerHTML = `<span class="pill">Unité : ${data.unite_dessin}</span>
         <span class="pill">${data.nb_calques} calques</span>
         <span class="pill">${data.ouvrages.length} ouvrages détectés</span>

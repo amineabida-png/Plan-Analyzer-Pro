@@ -71,6 +71,36 @@ class LectureDXF:
         """Renvoie la liste triée des calques présents."""
         return sorted(layer.dxf.name for layer in self.doc.layers)
 
+    def resume_calques(self) -> list[dict]:
+        """
+        Résume chaque calque utilisé : nombre d'entités et types dominants
+        (lignes, polylignes, blocs, textes). Sert à la classification manuelle :
+        l'utilisateur voit quels calques sont volumineux et de quel type, pour
+        décider rapidement lesquels sont des murs, portes, etc.
+        """
+        stats: dict[str, dict] = {}
+        for e in self.msp:
+            try:
+                calque = e.dxf.layer
+            except Exception:  # noqa: BLE001
+                continue
+            d = stats.setdefault(calque, {
+                "calque": calque, "total": 0,
+                "lignes": 0, "polylignes": 0, "blocs": 0, "textes": 0,
+            })
+            d["total"] += 1
+            t = e.dxftype()
+            if t in ("LINE",):
+                d["lignes"] += 1
+            elif t in ("LWPOLYLINE", "POLYLINE"):
+                d["polylignes"] += 1
+            elif t == "INSERT":
+                d["blocs"] += 1
+            elif t in ("TEXT", "MTEXT"):
+                d["textes"] += 1
+        # Tri par volume décroissant (les gros calques d'abord)
+        return sorted(stats.values(), key=lambda x: x["total"], reverse=True)
+
     def polylignes(self) -> list[dict]:
         """
         Extrait toutes les LWPOLYLINE et POLYLINE.

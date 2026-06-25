@@ -80,6 +80,7 @@ class RapportAnalyse(BaseModel):
     facteur_vers_metre: float
     nb_calques: int
     calques: list[str]
+    calques_detail: list[dict] = Field(default_factory=list)  # résumé par calque
     ouvrages: list[Ouvrage]
     pieces: list[PieceDetectee] = Field(default_factory=list)
     hsp_m: float = 2.70
