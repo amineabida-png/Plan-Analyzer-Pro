@@ -34,8 +34,17 @@ _REGLES_CALQUE: list[tuple[str, TypeOuvrage]] = [
 ]
 
 
-def _type_depuis_calque(calque: str) -> TypeOuvrage | None:
-    """Retourne le type d'ouvrage déduit du nom de calque, ou None."""
+def _type_depuis_calque(calque: str,
+                        mapping: dict[str, str] | None = None) -> TypeOuvrage | None:
+    """
+    Retourne le type d'ouvrage déduit du nom de calque.
+    Priorité au mapping fourni par l'IA (plans réels), puis aux règles par mots-clés.
+    """
+    if mapping and calque in mapping:
+        try:
+            return TypeOuvrage(mapping[calque])
+        except ValueError:
+            pass
     nom = calque.upper()
     for motif, type_ouvrage in _REGLES_CALQUE:
         if re.search(motif, nom):
@@ -76,8 +85,10 @@ class DetecteurOuvrages:
     # qui est sur un calque POTEAU est traité comme un poteau ponctuel.
     SEUIL_POTEAU_MM = 1000  # 1 m de diagonale max
 
-    def __init__(self, facteur_vers_metre: float):
+    def __init__(self, facteur_vers_metre: float,
+                 mapping_calques: dict[str, str] | None = None):
         self.k = facteur_vers_metre  # conversion unités dessin -> mètres
+        self.mapping = mapping_calques or {}
 
     def detecter(
         self,
@@ -90,7 +101,7 @@ class DetecteurOuvrages:
 
         # --- 1. Polylignes et lignes : murs, cloisons, poteaux, dalles ---
         for geo in polylignes + lignes:
-            type_o = _type_depuis_calque(geo["calque"]) or TypeOuvrage.INCONNU
+            type_o = _type_depuis_calque(geo["calque"], self.mapping) or TypeOuvrage.INCONNU
             pts = geo["points"]
             ferme = geo["ferme"]
             longueur = _longueur_polyligne(pts, ferme) * self.k
@@ -108,7 +119,7 @@ class DetecteurOuvrages:
 
         # --- 2. Blocs INSERT : portes et fenêtres comptés à l'unité ---
         for ins in inserts:
-            type_o = _type_depuis_calque(ins["calque"])
+            type_o = _type_depuis_calque(ins["calque"], self.mapping)
             if type_o is None:
                 # secours : déduire du nom du bloc
                 nom = ins["nom_bloc"].upper()
@@ -128,7 +139,7 @@ class DetecteurOuvrages:
 
         # --- 3. Textes : noms de pièces ---
         for txt in textes:
-            type_o = _type_depuis_calque(txt["calque"])
+            type_o = _type_depuis_calque(txt["calque"], self.mapping)
             if type_o == TypeOuvrage.PIECE:
                 x, y = txt["position"]
                 ouvrages.append(Ouvrage(

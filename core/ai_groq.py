@@ -102,3 +102,58 @@ def analyser_coherence(rapport: RapportAnalyse) -> dict:
         "Sois bref et structuré.",
         rapport,
     )
+
+
+# Catégories cibles pour le mapping de calques
+_CATEGORIES = [
+    "mur_exterieur", "mur_interieur", "cloison", "poteau", "poutre",
+    "voile", "dalle", "porte", "fenetre", "piece", "autre",
+]
+
+
+def mapper_calques(calques: list[str]) -> dict:
+    """
+    Utilise l'IA pour associer chaque NOM DE CALQUE d'un vrai plan à une
+    catégorie d'ouvrage. Indispensable car les plans réels n'utilisent pas de
+    conventions de nommage standard.
+
+    Renvoie {"ok": bool, "mapping": {nom_calque: categorie}, "message": str}.
+    Sans clé Groq, renvoie ok=False et un mapping vide (le moteur retombe alors
+    sur ses règles par mots-clés).
+    """
+    if not ia_disponible():
+        return {"ok": False, "mapping": {}, "message": "IA non configurée."}
+
+    try:
+        import json as _json
+        from groq import Groq
+        client = Groq(api_key=os.environ["GROQ_API_KEY"])
+        liste = "\n".join(f"- {c}" for c in calques)
+        prompt = (
+            "Voici les noms de calques d'un plan de bâtiment (DXF). Pour chacun, "
+            "donne la catégorie d'ouvrage la plus probable parmi exactement : "
+            f"{', '.join(_CATEGORIES)}.\n"
+            "Réponds UNIQUEMENT par un objet JSON {nom_calque: categorie}, sans "
+            "texte autour.\n\nCalques :\n" + liste
+        )
+        completion = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {"role": "system",
+                 "content": "Tu es un expert BTP qui classe des calques de plans "
+                            "DAO. Tu réponds uniquement en JSON valide."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.0,
+            max_tokens=1500,
+            response_format={"type": "json_object"},
+        )
+        brut = completion.choices[0].message.content.strip()
+        mapping = _json.loads(brut)
+        # Ne garde que les catégories valides
+        mapping = {k: v for k, v in mapping.items()
+                   if v in _CATEGORIES and v != "autre"}
+        return {"ok": True, "mapping": mapping,
+                "message": f"{len(mapping)} calque(s) classé(s) par l'IA."}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "mapping": {}, "message": f"Erreur IA : {e}"}

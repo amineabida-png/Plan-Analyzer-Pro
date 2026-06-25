@@ -72,7 +72,8 @@
       <input type="file" id="file" accept=".dxf,.dwg" />
       <div class="row">
         <label class="f">Hauteur sous plafond (m)
-          <input type="number" id="hsp" value="2.70" step="0.05" min="2" max="5" />
+          <input type="number" id="hsp" placeholder="auto" step="0.05" min="2" max="5"
+                 title="Laisser vide : l'app lit le HSP sur le plan, sinon valeur standard" />
         </label>
         <button id="go" disabled>Analyser le plan</button>
         <button id="xls" class="ghost hidden">Télécharger Excel</button>
@@ -173,7 +174,7 @@
         // Ré-analyse côté serveur en liant au projet via re-upload
         const form = new FormData();
         form.append('fichier', selected);
-        await fetch('/api/analyze?hsp=' + hsp() + '&projet_id=' + proj.id,
+        await fetch('/api/analyze?' + hspParam() + 'projet_id=' + proj.id,
                     {method: 'POST', body: form});
         st.textContent = '✅ Enregistré dans « ' + nom + ' »';
       } catch (e) { st.textContent = 'Erreur : ' + e.message; }
@@ -201,13 +202,16 @@
       form.append('fichier', selected);
       return form;
     }
-    function hsp() { return document.getElementById('hsp').value || 2.70; }
+    function hspParam() {
+      const v = document.getElementById('hsp').value;
+      return v ? ('hsp=' + v + '&') : '';  // vide -> auto-détection serveur
+    }
 
     go.addEventListener('click', async () => {
       if (!selected) return;
       go.disabled = true; status.innerHTML = '<span class="spin">Analyse en cours…</span>';
       try {
-        const res = await fetch('/api/analyze?hsp=' + hsp(), { method: 'POST', body: fd() });
+        const res = await fetch('/api/analyze?' + hspParam(), { method: 'POST', body: fd() });
         if (!res.ok) throw new Error((await res.json()).detail || 'Erreur');
         const data = await res.json();
         render(data); status.textContent = '';
@@ -219,7 +223,7 @@
 
     xls.addEventListener('click', async () => {
       status.innerHTML = '<span class="spin">Génération Excel…</span>';
-      const res = await fetch('/api/analyze/excel?hsp=' + hsp(), { method: 'POST', body: fd() });
+      const res = await fetch('/api/analyze/excel?' + hspParam(), { method: 'POST', body: fd() });
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -235,7 +239,8 @@
       rmeta.innerHTML = `<span class="pill">Unité : ${data.unite_dessin}</span>
         <span class="pill">${data.nb_calques} calques</span>
         <span class="pill">${data.ouvrages.length} ouvrages détectés</span>
-        <span class="pill">${(data.pieces||[]).length} pièces</span>`;
+        <span class="pill">${(data.pieces||[]).length} pièces</span>
+        <span class="pill">HSP : ${data.hsp_m} m ${data.hsp_detectee ? '(lue sur le plan)' : '(hypothèse)'}</span>`;
       const pieces = data.pieces || [];
       document.getElementById('pieces').innerHTML = pieces.length ? `
         <table style="margin-bottom:1.2rem">

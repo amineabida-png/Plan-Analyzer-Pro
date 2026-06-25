@@ -20,7 +20,9 @@ Analyse automatique de plans de construction **vectoriels (DXF)** et génératio
 ## 1. Ce que fait l'application
 
 - Importe un fichier **.dxf** ou **.dwg** (DWG converti automatiquement)
-- Détecte automatiquement l'**unité** du dessin et les **calques**
+- Détecte automatiquement l'**unité** du dessin (même si non spécifiée) et les **calques**
+- Détecte la **hauteur sous plafond** si elle est annotée sur le plan (sinon valeur à valider)
+- **Classe les calques par IA** (Groq) pour les plans réels aux noms non conventionnels
 - Classe les **ouvrages** (murs ext., cloisons, poteaux, portes, fenêtres, pièces)
 - **Détecte les pièces** par fermeture topologique des murs (Shapely) et calcule
   leurs **surfaces** : habitable, carrelage, plafond, peinture murs

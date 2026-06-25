@@ -170,7 +170,7 @@ def _sauver_temp(fichier: UploadFile) -> str:
 
 @app.post("/api/analyze")
 async def analyser(fichier: UploadFile = File(...),
-                   hsp: float = 2.70,
+                   hsp: float | None = None,
                    projet_id: int | None = None,
                    db: Session = Depends(get_session)) -> JSONResponse:
     """
@@ -198,7 +198,7 @@ async def analyser(fichier: UploadFile = File(...),
 
 @app.post("/api/analyze/excel")
 async def analyser_excel(fichier: UploadFile = File(...),
-                         hsp: float = 2.70) -> FileResponse:
+                         hsp: float | None = None) -> FileResponse:
     """Analyse un DXF/DWG et renvoie le métré sous forme de fichier Excel."""
     chemin = _sauver_temp(fichier)
     try:

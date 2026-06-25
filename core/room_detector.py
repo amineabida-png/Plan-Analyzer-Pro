@@ -48,9 +48,14 @@ def _segments_depuis_ouvrage(o: Ouvrage) -> list[LineString]:
 class DetecteurPieces:
     """Reconstruit les pièces et calcule leurs surfaces."""
 
-    def __init__(self, facteur_vers_metre: float, hsp_m: float = 2.70):
+    def __init__(self, facteur_vers_metre: float, hsp_m: float = 2.70,
+                 surface_min_m2: float = 1.0, surface_max_m2: float = 500.0):
         self.k = facteur_vers_metre
         self.hsp = hsp_m
+        # Garde-fous : une vraie pièce fait au moins ~1 m² et rarement > 500 m².
+        # Élimine les micro-faces (slivers) et l'enveloppe entière du bâtiment.
+        self.surface_min = surface_min_m2
+        self.surface_max = surface_max_m2
 
     def detecter(self, ouvrages: list[Ouvrage]) -> list[PieceDetectee]:
         # 1. Rassembler les segments délimitants
@@ -74,16 +79,19 @@ class DetecteurPieces:
 
         pieces: list[PieceDetectee] = []
         for face in faces:
+            # 5. Surfaces (conversion en mètres)
+            surface = face.area * (self.k ** 2)
+            # Garde-fou : ignorer les fausses pièces (slivers ou enveloppe globale)
+            if surface < self.surface_min or surface > self.surface_max:
+                continue
+            perimetre = face.length * self.k
+
             # 4. Associer un nom par point-dans-polygone
             nom = None
             for (lname, lx, ly) in labels:
                 if face.contains(Point(lx, ly)):
                     nom = lname
                     break
-
-            # 5. Surfaces (conversion en mètres)
-            surface = face.area * (self.k ** 2)
-            perimetre = face.length * self.k
 
             pieces.append(PieceDetectee(
                 id=str(uuid.uuid4())[:8],

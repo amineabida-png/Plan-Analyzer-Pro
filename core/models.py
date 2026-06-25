@@ -82,5 +82,8 @@ class RapportAnalyse(BaseModel):
     calques: list[str]
     ouvrages: list[Ouvrage]
     pieces: list[PieceDetectee] = Field(default_factory=list)
+    hsp_m: float = 2.70
+    hsp_detectee: bool = False  # True si lue sur le plan, False si hypothèse
+    mapping_ia: dict = Field(default_factory=dict)  # calques classés par l'IA
     metre: list[MetreLigne]
     alertes: list[str] = Field(default_factory=list)
