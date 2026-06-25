@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BTP QUANT AI — Analyse de plans</title>
+  <style>
+    :root {
+      --bg: #0f172a; --card: #1e293b; --accent: #38bdf8;
+      --text: #e2e8f0; --muted: #94a3b8; --border: #334155; --ok: #4ade80;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: var(--bg); color: var(--text);
+      min-height: 100vh; padding: 2rem 1rem;
+    }
+    .wrap { max-width: 860px; margin: 0 auto; }
+    header { text-align: center; margin-bottom: 2rem; }
+    h1 { font-size: 1.8rem; letter-spacing: -0.5px; }
+    h1 span { color: var(--accent); }
+    .sub { color: var(--muted); margin-top: 0.4rem; font-size: 0.95rem; }
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 14px; padding: 1.6rem; margin-bottom: 1.4rem;
+    }
+    .drop {
+      border: 2px dashed var(--border); border-radius: 12px;
+      padding: 2.2rem 1rem; text-align: center; cursor: pointer;
+      transition: border-color .2s, background .2s;
+    }
+    .drop:hover, .drop.over { border-color: var(--accent); background: #0b1220; }
+    .drop strong { color: var(--accent); }
+    input[type=file] { display: none; }
+    .row { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; margin-top: 1rem; }
+    label.f { color: var(--muted); font-size: .9rem; }
+    input[type=number] {
+      background: #0b1220; border: 1px solid var(--border); color: var(--text);
+      border-radius: 8px; padding: .5rem .7rem; width: 90px;
+    }
+    button {
+      background: var(--accent); color: #04293a; border: none; font-weight: 700;
+      padding: .7rem 1.3rem; border-radius: 9px; cursor: pointer; font-size: .95rem;
+    }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+    table { width: 100%; border-collapse: collapse; margin-top: .6rem; font-size: .9rem; }
+    th, td { padding: .55rem .6rem; border-bottom: 1px solid var(--border); text-align: left; }
+    th { color: var(--muted); font-weight: 600; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .pill { display:inline-block; background:#0b1220; border:1px solid var(--border);
+            padding:.15rem .55rem; border-radius:999px; font-size:.78rem; color:var(--muted); }
+    .alert { color:#fbbf24; font-size:.85rem; margin-top:.4rem; }
+    .meta { color: var(--muted); font-size: .85rem; margin-bottom: .8rem; }
+    .hidden { display: none; }
+    .spin { color: var(--accent); }
+    footer { text-align:center; color:var(--muted); font-size:.8rem; margin-top:1.5rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>BTP <span>QUANT AI</span></h1>
+      <p class="sub">Analyse automatique de plans vectoriels — métré fiable au centimètre</p>
+    </header>
+
+    <div class="card">
+      <div class="drop" id="drop">
+        <p>Glissez un fichier <strong>.dxf</strong> ici, ou cliquez pour parcourir</p>
+        <p class="sub" id="fname">Aucun fichier sélectionné</p>
+      </div>
+      <input type="file" id="file" accept=".dxf" />
+      <div class="row">
+        <label class="f">Hauteur sous plafond (m)
+          <input type="number" id="hsp" value="2.70" step="0.05" min="2" max="5" />
+        </label>
+        <button id="go" disabled>Analyser le plan</button>
+        <button id="xls" class="ghost hidden">Télécharger Excel</button>
+        <span id="status" class="sub"></span>
+      </div>
+    </div>
+
+    <div class="card hidden" id="result">
+      <div class="meta" id="rmeta"></div>
+      <table>
+        <thead>
+          <tr><th>Poste</th><th>Détail</th><th style="text-align:right">Quantité</th><th>Unité</th></tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div id="alerts"></div>
+    </div>
+
+    <footer>BTP QUANT AI · 100% open source · socle vectoriel DXF</footer>
+  </div>
+
+  <script>
+    const drop = document.getElementById('drop');
+    const fileInput = document.getElementById('file');
+    const fname = document.getElementById('fname');
+    const go = document.getElementById('go');
+    const xls = document.getElementById('xls');
+    const status = document.getElementById('status');
+    const result = document.getElementById('result');
+    const rows = document.getElementById('rows');
+    const rmeta = document.getElementById('rmeta');
+    const alerts = document.getElementById('alerts');
+    let selected = null;
+
+    drop.addEventListener('click', () => fileInput.click());
+    drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+    drop.addEventListener('drop', e => {
+      e.preventDefault(); drop.classList.remove('over');
+      if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', () => { if (fileInput.files.length) setFile(fileInput.files[0]); });
+
+    function setFile(f) {
+      if (!f.name.toLowerCase().endsWith('.dxf')) { alert('Veuillez choisir un fichier .dxf'); return; }
+      selected = f; fname.textContent = f.name; go.disabled = false;
+    }
+
+    function fd() {
+      const form = new FormData();
+      form.append('fichier', selected);
+      return form;
+    }
+    function hsp() { return document.getElementById('hsp').value || 2.70; }
+
+    go.addEventListener('click', async () => {
+      if (!selected) return;
+      go.disabled = true; status.innerHTML = '<span class="spin">Analyse en cours…</span>';
+      try {
+        const res = await fetch('/api/analyze?hsp=' + hsp(), { method: 'POST', body: fd() });
+        if (!res.ok) throw new Error((await res.json()).detail || 'Erreur');
+        const data = await res.json();
+        render(data); status.textContent = '';
+        xls.classList.remove('hidden');
+      } catch (e) {
+        status.textContent = 'Erreur : ' + e.message;
+      } finally { go.disabled = false; }
+    });
+
+    xls.addEventListener('click', async () => {
+      status.innerHTML = '<span class="spin">Génération Excel…</span>';
+      const res = await fetch('/api/analyze/excel?hsp=' + hsp(), { method: 'POST', body: fd() });
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'metre_btp_quant_ai.xlsx'; a.click();
+      URL.revokeObjectURL(url); status.textContent = '';
+    });
+
+    function render(data) {
+      result.classList.remove('hidden');
+      rmeta.innerHTML = `<span class="pill">Unité : ${data.unite_dessin}</span>
+        <span class="pill">${data.nb_calques} calques</span>
+        <span class="pill">${data.ouvrages.length} ouvrages détectés</span>`;
+      rows.innerHTML = data.metre.map(l => `
+        <tr><td>${l.poste}</td><td class="sub">${l.detail || ''}</td>
+        <td class="num">${l.quantite.toLocaleString('fr-FR',{minimumFractionDigits:2})}</td>
+        <td>${l.unite}</td></tr>`).join('');
+      alerts.innerHTML = (data.alertes || []).map(a => `<div class="alert">⚠ ${a}</div>`).join('');
+    }
+  </script>
+</body>
+</html>
