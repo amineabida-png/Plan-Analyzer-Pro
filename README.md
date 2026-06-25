@@ -26,6 +26,9 @@ Analyse automatique de plans de construction **vectoriels (DXF)** et génératio
   leurs **surfaces** : habitable, carrelage, plafond, peinture murs
 - Calcule un **métré** (longueurs, surfaces, comptages, volume béton estimé)
 - Chiffrage en **dirham marocain (DH)**
+- **Historique & versionning** des projets (PostgreSQL en cloud, SQLite en local)
+- **Comparaison de versions** d'un plan (écarts de métré poste par poste)
+- **Assistant IA** (Groq / Llama) : questions en langage naturel, cohérence, matériaux
 - Export **Excel** (feuilles Métré + Pièces, avec formules) + rapport **JSON**
 - Interface web d'upload + API REST
 
@@ -127,7 +130,33 @@ git push -u origin main
 
 ---
 
+## 3 bis. Base de données (historique & versionning)
+
+- **En local** : rien à faire. Par défaut, l'app utilise **SQLite** (fichier
+  `plan_analyzer.db` créé automatiquement). Vos projets et versions sont stockés là.
+- **Sur Railway** : ajoutez **PostgreSQL** en un clic — *New* → *Database* →
+  *Add PostgreSQL*. Railway injecte automatiquement la variable `DATABASE_URL`,
+  que l'application détecte seule. Aucune autre configuration.
+
+Un *projet* regroupe plusieurs *analyses* (les versions du métré). À chaque
+sauvegarde, le numéro de version s'incrémente, et vous pouvez comparer deux
+versions poste par poste.
+
+## 3 ter. Assistant IA (Groq, gratuit)
+
+1. Créez une clé gratuite sur **https://console.groq.com** (*Create API Key*).
+2. Ajoutez-la en variable d'environnement `GROQ_API_KEY` :
+   - **En local** : dans un fichier `.env` (voir `.env.example`).
+   - **Sur Railway** : onglet *Variables* du service → *New Variable* →
+     `GROQ_API_KEY` = votre clé.
+3. L'assistant apparaît sous les résultats : posez vos questions en français
+   (« calcule le volume de béton », « prépare un devis », « vérifie la cohérence »).
+
+> Sans clé, l'app fonctionne normalement ; seul l'assistant IA est désactivé
+> (il affiche une invitation à configurer la clé).
+
 ## 4. Déployer sur Railway
+
 
 > Railway détecte automatiquement Python et lit `railway.json` / `Procfile`.
 > Aucune configuration manuelle de build n'est nécessaire.
@@ -175,6 +204,10 @@ plan-analyzer-pro/
 │   ├── export_excel.py          Export Excel
 │   ├── room_detector.py         Détection des pièces (Shapely)
 │   ├── dwg_converter.py         Conversion DWG -> DXF (ODA / LibreDWG)
+│   ├── database.py              Connexion BDD (SQLite / PostgreSQL)
+│   ├── db_models.py             Modèles projets & analyses
+│   ├── repository.py            Sauvegarde, historique, comparaison
+│   ├── ai_groq.py               Assistant IA Groq / Llama
 │   ├── analyse.py               Orchestrateur du pipeline
 │   └── models.py                Modèles de données typés
 ├── static/index.html           Interface web d'upload
@@ -199,7 +232,12 @@ plan-analyzer-pro/
 | GET     | `/health`              | Sonde de santé (Railway)               |
 | POST    | `/api/analyze`         | Analyse un DXF/DWG → métré JSON        |
 | POST    | `/api/analyze/excel`   | Analyse un DXF/DWG → fichier Excel    |
-| GET     | `/api/capabilities`    | Indique si la conversion DWG est active |
+| GET     | `/api/capabilities`    | Conversion DWG et IA actives ?         |
+| POST    | `/api/projects`        | Créer un projet                        |
+| GET     | `/api/projects`        | Lister les projets                     |
+| GET     | `/api/projects/{id}/analyses` | Historique versionné            |
+| GET     | `/api/compare?a=&b=`   | Comparer deux versions                 |
+| POST    | `/api/chat`            | Poser une question à l'IA              |
 
 Exemple (curl) :
 

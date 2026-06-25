@@ -91,9 +91,25 @@
         <tbody id="rows"></tbody>
       </table>
       <div id="alerts"></div>
+      <div class="row" style="margin-top:1rem;border-top:1px solid var(--border);padding-top:1rem">
+        <input type="text" id="projname" placeholder="Nom du projet"
+               style="background:#0b1220;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:.5rem .7rem;flex:1;min-width:160px" />
+        <button id="save" class="ghost">Sauvegarder dans l'historique</button>
+        <span id="savestatus" class="sub"></span>
+      </div>
     </div>
 
-    <footer>Plan Analyzer Pro · 100% open source · socle vectoriel DXF</footer>
+    <div class="card hidden" id="aicard">
+      <h3 style="margin-bottom:.6rem;font-size:1.05rem">Assistant IA <span style="color:var(--muted);font-size:.8rem" id="aihint"></span></h3>
+      <div class="row">
+        <input type="text" id="aiq" placeholder="Ex : calcule le volume de béton, prépare un devis…"
+               style="background:#0b1220;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:.6rem .7rem;flex:1;min-width:200px" />
+        <button id="ask">Demander</button>
+      </div>
+      <div id="aianswer" class="sub" style="margin-top:.9rem;white-space:pre-wrap;line-height:1.5"></div>
+    </div>
+
+    <footer>Plan Analyzer Pro · 100% open source · métré + IA · DH</footer>
   </div>
 
   <script>
@@ -136,8 +152,49 @@
           note.innerHTML = 'ℹ️ Les fichiers .dxf fonctionnent directement. Pour le .dwg, '
             + 'installez « ODA File Converter » (gratuit) sur la machine, ou convertissez en .dxf en local.';
         }
+        document.getElementById('aihint').textContent =
+          cap.ia ? '(Groq actif)' : '(configurez GROQ_API_KEY pour activer)';
       } catch (e) {}
     })();
+
+    // Sauvegarde dans un projet (crée le projet puis enregistre l'analyse)
+    document.getElementById('save').addEventListener('click', async () => {
+      if (!lastReport) return;
+      const nom = document.getElementById('projname').value.trim();
+      const st = document.getElementById('savestatus');
+      if (!nom) { st.textContent = 'Indiquez un nom de projet.'; return; }
+      st.textContent = 'Sauvegarde…';
+      try {
+        const pr = await fetch('/api/projects', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({nom})
+        });
+        const proj = await pr.json();
+        // Ré-analyse côté serveur en liant au projet via re-upload
+        const form = new FormData();
+        form.append('fichier', selected);
+        await fetch('/api/analyze?hsp=' + hsp() + '&projet_id=' + proj.id,
+                    {method: 'POST', body: form});
+        st.textContent = '✅ Enregistré dans « ' + nom + ' »';
+      } catch (e) { st.textContent = 'Erreur : ' + e.message; }
+    });
+
+    // Assistant IA
+    document.getElementById('ask').addEventListener('click', async () => {
+      if (!lastReport) return;
+      const q = document.getElementById('aiq').value.trim();
+      const ans = document.getElementById('aianswer');
+      if (!q) return;
+      ans.innerHTML = '<span class="spin">L\'IA réfléchit…</span>';
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({question: q, donnees: lastReport})
+        });
+        const data = await res.json();
+        ans.textContent = data.reponse;
+      } catch (e) { ans.textContent = 'Erreur : ' + e.message; }
+    });
 
     function fd() {
       const form = new FormData();
@@ -170,8 +227,11 @@
       URL.revokeObjectURL(url); status.textContent = '';
     });
 
+    let lastReport = null;
     function render(data) {
+      lastReport = data;
       result.classList.remove('hidden');
+      document.getElementById('aicard').classList.remove('hidden');
       rmeta.innerHTML = `<span class="pill">Unité : ${data.unite_dessin}</span>
         <span class="pill">${data.nb_calques} calques</span>
         <span class="pill">${data.ouvrages.length} ouvrages détectés</span>

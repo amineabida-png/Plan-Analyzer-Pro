@@ -12,19 +12,34 @@ from __future__ import annotations
 import os
 import tempfile
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from core.analyse import analyser_fichier
 from core.dwg_converter import conversion_disponible, ConversionDWGError
 from core.export_excel import exporter_excel
+from core.models import RapportAnalyse
+from core.database import init_db, get_session
+from core import repository as repo
+from core import ai_groq
 
 app = FastAPI(
     title="Plan Analyzer Pro",
     description="Analyse automatique de plans vectoriels et métré (socle DXF).",
-    version="0.1.0",
+    version="0.3.0",
 )
+
+
+@app.on_event("startup")
+def _demarrage() -> None:
+    """Crée les tables de la base de données au démarrage."""
+    try:
+        init_db()
+    except Exception as e:  # noqa: BLE001
+        print(f"[WARN] Base de données non initialisée : {e}")
 
 # Sert les fichiers statiques (interface web)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -46,16 +61,97 @@ def accueil() -> HTMLResponse:
 @app.get("/health")
 def health() -> dict:
     """Sonde de santé pour Railway / monitoring."""
-    return {"status": "ok", "service": "plan-analyzer-pro", "version": "0.2.0"}
+    return {"status": "ok", "service": "plan-analyzer-pro", "version": "0.3.0"}
 
 
 @app.get("/api/capabilities")
 def capabilities() -> dict:
-    """Indique les capacités disponibles (ex : conversion DWG)."""
+    """Indique les capacités disponibles (conversion DWG, IA)."""
     return {
         "dxf": True,
         "dwg": conversion_disponible(),
+        "ia": ai_groq.ia_disponible(),
     }
+
+
+# ----------------------- Projets & historique -----------------------
+
+class ProjetIn(BaseModel):
+    nom: str
+    description: str = ""
+
+
+@app.post("/api/projects")
+def creer_projet(data: ProjetIn, db: Session = Depends(get_session)) -> dict:
+    """Crée un nouveau projet."""
+    p = repo.creer_projet(db, data.nom, data.description)
+    return {"id": p.id, "nom": p.nom, "description": p.description}
+
+
+@app.get("/api/projects")
+def lister_projets(db: Session = Depends(get_session)) -> list[dict]:
+    """Liste tous les projets avec le nombre d'analyses."""
+    out = []
+    for p in repo.lister_projets(db):
+        out.append({
+            "id": p.id, "nom": p.nom, "description": p.description,
+            "nb_analyses": len(p.analyses),
+            "date_creation": p.date_creation.isoformat(),
+        })
+    return out
+
+
+@app.get("/api/projects/{projet_id}/analyses")
+def historique(projet_id: int, db: Session = Depends(get_session)) -> list[dict]:
+    """Historique versionné des analyses d'un projet."""
+    analyses = repo.lister_analyses(db, projet_id)
+    return [{
+        "id": a.id, "version": a.version, "nom_fichier": a.nom_fichier,
+        "nb_pieces": a.nb_pieces, "surface_habitable_m2": a.surface_habitable_m2,
+        "date_creation": a.date_creation.isoformat(),
+    } for a in analyses]
+
+
+@app.get("/api/analyses/{analyse_id}")
+def obtenir_analyse(analyse_id: int, db: Session = Depends(get_session)) -> dict:
+    """Renvoie le rapport complet d'une analyse sauvegardée."""
+    a = repo.obtenir_analyse(db, analyse_id)
+    if not a:
+        raise HTTPException(status_code=404, detail="Analyse introuvable.")
+    return {"id": a.id, "version": a.version, "donnees": a.donnees}
+
+
+@app.get("/api/compare")
+def comparer(a: int, b: int, db: Session = Depends(get_session)) -> dict:
+    """Compare deux versions d'analyse (écarts de métré poste par poste)."""
+    return repo.comparer_analyses(db, a, b)
+
+
+# ----------------------- IA Groq -----------------------
+
+class ChatIn(BaseModel):
+    question: str
+    donnees: dict  # rapport d'analyse (RapportAnalyse sérialisé)
+
+
+@app.post("/api/chat")
+def chat(data: ChatIn) -> dict:
+    """Répond à une question sur le métré via l'IA Groq."""
+    try:
+        rapport = RapportAnalyse.model_validate(data.donnees)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Données invalides : {e}")
+    return ai_groq.repondre(data.question, rapport)
+
+
+@app.post("/api/coherence")
+def coherence(data: dict) -> dict:
+    """Vérification de cohérence + suggestions de matériaux par l'IA."""
+    try:
+        rapport = RapportAnalyse.model_validate(data)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Données invalides : {e}")
+    return ai_groq.analyser_coherence(rapport)
 
 
 def _sauver_temp(fichier: UploadFile) -> str:
@@ -74,12 +170,23 @@ def _sauver_temp(fichier: UploadFile) -> str:
 
 @app.post("/api/analyze")
 async def analyser(fichier: UploadFile = File(...),
-                   hsp: float = 2.70) -> JSONResponse:
-    """Analyse un DXF ou DWG et renvoie le rapport de métré complet en JSON."""
+                   hsp: float = 2.70,
+                   projet_id: int | None = None,
+                   db: Session = Depends(get_session)) -> JSONResponse:
+    """
+    Analyse un DXF ou DWG et renvoie le rapport de métré complet en JSON.
+    Si projet_id est fourni, l'analyse est sauvegardée comme nouvelle version.
+    """
     chemin = _sauver_temp(fichier)
     try:
         rapport = analyser_fichier(chemin, hsp_m=hsp)
-        return JSONResponse(rapport.model_dump())
+        rapport.fichier = fichier.filename or rapport.fichier
+        resultat = rapport.model_dump()
+        if projet_id is not None:
+            analyse = repo.sauvegarder_analyse(db, projet_id, rapport)
+            resultat["_sauvegarde"] = {
+                "analyse_id": analyse.id, "version": analyse.version}
+        return JSONResponse(resultat)
     except ConversionDWGError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:  # noqa: BLE001
