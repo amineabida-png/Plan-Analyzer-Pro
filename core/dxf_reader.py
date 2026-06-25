@@ -1,5 +1,5 @@
 """
-Lecteur DXF de BTP QUANT AI.
+Lecteur DXF de Plan Analyzer Pro.
 Responsabilités :
   - ouvrir un fichier DXF (ezdxf, licence MIT, gratuit)
   - détecter automatiquement l'unité de dessin ($INSUNITS)

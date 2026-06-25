@@ -1,8 +1,9 @@
-# BTP QUANT AI — Dépendances (toutes open source, gratuites, usage commercial OK)
+# Plan Analyzer Pro — Dépendances (toutes open source, gratuites, usage commercial OK)
 # --- Moteur d'analyse ---
 ezdxf>=1.4.0            # Lecture/écriture DXF (MIT)
 pydantic>=2.0          # Modèles typés (MIT)
 openpyxl>=3.1          # Export Excel (MIT)
+shapely>=2.0          # Géométrie / détection des pièces (BSD)
 # --- API web ---
 fastapi>=0.110         # Framework API (MIT)
 uvicorn[standard]>=0.27  # Serveur ASGI (BSD)

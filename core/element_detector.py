@@ -1,5 +1,5 @@
 """
-Détecteur d'ouvrages de BTP QUANT AI.
+Détecteur d'ouvrages de Plan Analyzer Pro.
 Transforme la géométrie brute (issue de LectureDXF) en ouvrages métier classés.
 
 Stratégie de classification (couche 1, déterministe) :

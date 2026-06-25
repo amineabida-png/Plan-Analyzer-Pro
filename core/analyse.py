@@ -1,5 +1,5 @@
 """
-Orchestrateur principal de BTP QUANT AI (socle vectoriel).
+Orchestrateur principal de Plan Analyzer Pro (socle vectoriel).
 Enchaîne : lecture DXF -> détection des ouvrages -> calcul du métré
 et renvoie un RapportAnalyse complet, sérialisable en JSON.
 
@@ -7,11 +7,13 @@ Usage :
     python -m core.analyse samples/plan_rdc.dxf
 """
 from __future__ import annotations
+import os
 import sys
 import json
 
 from .dxf_reader import LectureDXF
 from .element_detector import DetecteurOuvrages
+from .room_detector import DetecteurPieces
 from .quantity_calculator import CalculateurMetre
 from .models import RapportAnalyse
 
@@ -30,9 +32,14 @@ def analyser_dxf(chemin: str, hsp_m: float = 2.70) -> RapportAnalyse:
         textes=lecture.textes(),
     )
 
-    # 3. Métré
+    # 3. Détection des pièces (fermeture topologique des murs)
+    detecteur_pieces = DetecteurPieces(
+        facteur_vers_metre=lecture.facteur_vers_metre, hsp_m=hsp_m)
+    pieces = detecteur_pieces.detecter(ouvrages)
+
+    # 4. Métré
     calc = CalculateurMetre(hsp_m=hsp_m)
-    metre, alertes = calc.calculer(ouvrages)
+    metre, alertes = calc.calculer(ouvrages, pieces)
 
     return RapportAnalyse(
         fichier=chemin,
@@ -41,6 +48,7 @@ def analyser_dxf(chemin: str, hsp_m: float = 2.70) -> RapportAnalyse:
         nb_calques=len(lecture.calques()),
         calques=lecture.calques(),
         ouvrages=ouvrages,
+        pieces=pieces,
         metre=metre,
         alertes=alertes,
     )
@@ -49,13 +57,21 @@ def analyser_dxf(chemin: str, hsp_m: float = 2.70) -> RapportAnalyse:
 def _afficher(rapport: RapportAnalyse) -> None:
     """Affichage console lisible du rapport."""
     print("=" * 62)
-    print("  BTP QUANT AI — RAPPORT D'ANALYSE (socle vectoriel DXF)")
+    print("  Plan Analyzer Pro — RAPPORT D'ANALYSE (socle vectoriel DXF)")
     print("=" * 62)
     print(f"Fichier        : {rapport.fichier}")
     print(f"Unité détectée : {rapport.unite_dessin.value} "
           f"(x{rapport.facteur_vers_metre} -> mètre)")
     print(f"Calques ({rapport.nb_calques}) : {', '.join(rapport.calques)}")
     print(f"Ouvrages détectés : {len(rapport.ouvrages)}")
+    if rapport.pieces:
+        print("-" * 62)
+        print(f"PIÈCES DÉTECTÉES ({len(rapport.pieces)})")
+        print("-" * 62)
+        print(f"{'Pièce':<22}{'Surface':>10} {'Périmètre':>11} {'Peinture':>10}")
+        for p in rapport.pieces:
+            print(f"{p.nom:<22}{p.surface_m2:>8.2f}m²{p.perimetre_m:>9.2f}m"
+                  f"{p.surface_peinture_murs_m2:>8.2f}m²")
     print("-" * 62)
     print("MÉTRÉ")
     print("-" * 62)
@@ -79,6 +95,7 @@ if __name__ == "__main__":
     _afficher(rapport)
 
     # Export JSON
+    os.makedirs("outputs", exist_ok=True)
     sortie = "outputs/rapport.json"
     with open(sortie, "w", encoding="utf-8") as f:
         json.dump(rapport.model_dump(), f, ensure_ascii=False, indent=2)

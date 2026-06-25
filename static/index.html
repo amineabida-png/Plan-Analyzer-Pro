@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BTP QUANT AI — Analyse de plans</title>
+  <title>Plan Analyzer Pro — Analyse de plans</title>
   <style>
     :root {
       --bg: #0f172a; --card: #1e293b; --accent: #38bdf8;
@@ -60,7 +60,7 @@
 <body>
   <div class="wrap">
     <header>
-      <h1>BTP <span>QUANT AI</span></h1>
+      <h1>Plan <span>Analyzer Pro</span></h1>
       <p class="sub">Analyse automatique de plans vectoriels — métré fiable au centimètre</p>
     </header>
 
@@ -82,6 +82,7 @@
 
     <div class="card hidden" id="result">
       <div class="meta" id="rmeta"></div>
+      <div id="pieces"></div>
       <table>
         <thead>
           <tr><th>Poste</th><th>Détail</th><th style="text-align:right">Quantité</th><th>Unité</th></tr>
@@ -91,7 +92,7 @@
       <div id="alerts"></div>
     </div>
 
-    <footer>BTP QUANT AI · 100% open source · socle vectoriel DXF</footer>
+    <footer>Plan Analyzer Pro · 100% open source · socle vectoriel DXF</footer>
   </div>
 
   <script>
@@ -148,7 +149,7 @@
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = 'metre_btp_quant_ai.xlsx'; a.click();
+      a.href = url; a.download = 'metre_plan_analyzer_pro.xlsx'; a.click();
       URL.revokeObjectURL(url); status.textContent = '';
     });
 
@@ -156,7 +157,22 @@
       result.classList.remove('hidden');
       rmeta.innerHTML = `<span class="pill">Unité : ${data.unite_dessin}</span>
         <span class="pill">${data.nb_calques} calques</span>
-        <span class="pill">${data.ouvrages.length} ouvrages détectés</span>`;
+        <span class="pill">${data.ouvrages.length} ouvrages détectés</span>
+        <span class="pill">${(data.pieces||[]).length} pièces</span>`;
+      const pieces = data.pieces || [];
+      document.getElementById('pieces').innerHTML = pieces.length ? `
+        <table style="margin-bottom:1.2rem">
+          <thead><tr><th>Pièce</th>
+            <th style="text-align:right">Surface</th>
+            <th style="text-align:right">Carrelage</th>
+            <th style="text-align:right">Peinture murs</th></tr></thead>
+          <tbody>${pieces.map(p => `<tr>
+            <td>${p.nom}</td>
+            <td class="num">${p.surface_m2.toLocaleString('fr-FR',{minimumFractionDigits:2})} m²</td>
+            <td class="num">${p.surface_carrelage_m2.toLocaleString('fr-FR',{minimumFractionDigits:2})} m²</td>
+            <td class="num">${p.surface_peinture_murs_m2.toLocaleString('fr-FR',{minimumFractionDigits:2})} m²</td>
+          </tr>`).join('')}</tbody>
+        </table>` : '';
       rows.innerHTML = data.metre.map(l => `
         <tr><td>${l.poste}</td><td class="sub">${l.detail || ''}</td>
         <td class="num">${l.quantite.toLocaleString('fr-FR',{minimumFractionDigits:2})}</td>

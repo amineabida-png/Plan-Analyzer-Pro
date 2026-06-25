@@ -1,5 +1,5 @@
 """
-Exportateur Excel du métré (BTP QUANT AI).
+Exportateur Excel du métré (Plan Analyzer Pro).
 Produit un classeur professionnel à partir d'un RapportAnalyse :
   - feuille "Métré" : postes, quantités, unités, prix unitaire (à saisir), total (formule)
   - feuille "Synthèse" : totaux par lot avec formules
@@ -29,7 +29,7 @@ def exporter_excel(rapport: RapportAnalyse, chemin: str) -> str:
     ws = wb.active
     ws.title = "Métré"
 
-    ws["A1"] = "BTP QUANT AI — MÉTRÉ AUTOMATIQUE"
+    ws["A1"] = "Plan Analyzer Pro — MÉTRÉ AUTOMATIQUE"
     ws["A1"].font = Font(name=POLICE, bold=True, size=14)
     ws["A2"] = f"Fichier : {rapport.fichier}"
     ws["A3"] = f"Unité de dessin détectée : {rapport.unite_dessin.value}"
@@ -83,6 +83,46 @@ def exporter_excel(rapport: RapportAnalyse, chemin: str) -> str:
     largeurs = {"A": 5, "B": 40, "C": 28, "D": 12, "E": 8, "F": 18, "G": 16}
     for col, w in largeurs.items():
         ws.column_dimensions[col].width = w
+
+    # ---------------- Feuille Pièces ----------------
+    if rapport.pieces:
+        wsp = wb.create_sheet("Pièces")
+        wsp["A1"] = "DÉTAIL DES PIÈCES"
+        wsp["A1"].font = Font(name=POLICE, bold=True, size=13)
+        entetes_p = ["Pièce", "Surface (m²)", "Périmètre (m)",
+                     "Carrelage (m²)", "Plafond (m²)", "Peinture murs (m²)"]
+        lp = 3
+        for col, titre in enumerate(entetes_p, start=1):
+            c = wsp.cell(row=lp, column=col, value=titre)
+            c.font = ENTETE
+            c.fill = FILL_ENTETE
+            c.alignment = CENTRE
+            c.border = BORDURE
+        r = lp + 1
+        debut = r
+        for p in rapport.pieces:
+            wsp.cell(row=r, column=1, value=p.nom).font = NOIR
+            wsp.cell(row=r, column=2, value=p.surface_m2).font = NOIR
+            wsp.cell(row=r, column=3, value=p.perimetre_m).font = NOIR
+            wsp.cell(row=r, column=4, value=p.surface_carrelage_m2).font = NOIR
+            wsp.cell(row=r, column=5, value=p.surface_plafond_m2).font = NOIR
+            wsp.cell(row=r, column=6, value=p.surface_peinture_murs_m2).font = NOIR
+            for col in range(1, 7):
+                cell = wsp.cell(row=r, column=col)
+                cell.border = BORDURE
+                if col >= 2:
+                    cell.number_format = "#,##0.00"
+            r += 1
+        # Totaux en formules
+        wsp.cell(row=r, column=1, value="TOTAL").font = Font(name=POLICE, bold=True)
+        for col, lettre in [(2, "B"), (4, "D"), (5, "E"), (6, "F")]:
+            t = wsp.cell(row=r, column=col,
+                         value=f"=SUM({lettre}{debut}:{lettre}{r-1})")
+            t.font = Font(name=POLICE, bold=True)
+            t.number_format = "#,##0.00"
+            t.fill = FILL_TITRE
+        for col, w in zip("ABCDEF", [20, 13, 14, 14, 13, 17]):
+            wsp.column_dimensions[col].width = w
 
     # ---------------- Feuille Alertes ----------------
     if rapport.alertes:

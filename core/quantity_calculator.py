@@ -1,5 +1,5 @@
 """
-Calculateur de métré de BTP QUANT AI.
+Calculateur de métré de Plan Analyzer Pro.
 Agrège les ouvrages détectés en postes quantifiés, prêts pour un DQE/devis.
 
 Hypothèses de calcul (paramétrables) :
@@ -19,9 +19,11 @@ class CalculateurMetre:
         self.hsp = hsp_m                      # hauteur sous plafond
         self.section_poteau = section_poteau_m
 
-    def calculer(self, ouvrages: list[Ouvrage]) -> tuple[list[MetreLigne], list[str]]:
+    def calculer(self, ouvrages: list[Ouvrage],
+                 pieces: list | None = None) -> tuple[list[MetreLigne], list[str]]:
         lignes: list[MetreLigne] = []
         alertes: list[str] = []
+        pieces = pieces or []
 
         # Accumulateurs par type
         long_par_type: dict[TypeOuvrage, float] = defaultdict(float)
@@ -120,6 +122,41 @@ class CalculateurMetre:
                 poste="Dalle - surface", type_ouvrage=TypeOuvrage.DALLE,
                 quantite=round(long_par_type[TypeOuvrage.DALLE], 2), unite="m2",
             ))
+
+        # --- Surfaces de pièces (fermeture topologique) ---
+        if pieces:
+            surf_habitable = sum(p.surface_m2 for p in pieces)
+            surf_carrelage = sum(p.surface_carrelage_m2 for p in pieces)
+            surf_plafond = sum(p.surface_plafond_m2 for p in pieces)
+            surf_peinture = sum(p.surface_peinture_murs_m2 for p in pieces)
+
+            lignes.append(MetreLigne(
+                poste="Surface habitable totale", type_ouvrage=TypeOuvrage.PIECE,
+                quantite=round(surf_habitable, 2), unite="m2",
+                detail=f"{len(pieces)} pièce(s) détectée(s)",
+            ))
+            lignes.append(MetreLigne(
+                poste="Surface carrelage (sol)", type_ouvrage=TypeOuvrage.PIECE,
+                quantite=round(surf_carrelage, 2), unite="m2",
+            ))
+            lignes.append(MetreLigne(
+                poste="Surface plafond", type_ouvrage=TypeOuvrage.PIECE,
+                quantite=round(surf_plafond, 2), unite="m2",
+            ))
+            lignes.append(MetreLigne(
+                poste="Surface peinture murs (brute)", type_ouvrage=TypeOuvrage.PIECE,
+                quantite=round(surf_peinture, 2), unite="m2",
+                detail=f"Périmètre x HSP ({self.hsp} m), hors déduction ouvertures",
+            ))
+            alertes.append(
+                "Surfaces de pièces calculées à l'AXE des murs : légèrement "
+                "supérieures à la surface nette (déduction de la demi-épaisseur "
+                "des murs non encore appliquée)."
+            )
+            alertes.append(
+                "Surface peinture brute : les ouvertures (portes/fenêtres) ne sont "
+                "pas encore déduites."
+            )
 
         # --- Alerte si des ouvrages n'ont pas pu être classés ---
         n_inconnus = sum(1 for o in ouvrages if o.type == TypeOuvrage.INCONNU)

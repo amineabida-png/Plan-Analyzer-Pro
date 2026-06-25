@@ -1,1 +1,1 @@
-"""BTP QUANT AI - moteur d'analyse de plans vectoriels."""
+"""Plan Analyzer Pro - moteur d'analyse de plans vectoriels."""

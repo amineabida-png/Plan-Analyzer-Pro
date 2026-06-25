@@ -1,5 +1,5 @@
 """
-Modèles de données de BTP QUANT AI.
+Modèles de données de Plan Analyzer Pro.
 Tout est fortement typé (Pydantic) pour garantir la cohérence entre
 la lecture DXF, la détection des ouvrages et le calcul du métré.
 """
@@ -52,6 +52,18 @@ class Ouvrage(BaseModel):
     nom: Optional[str] = None  # ex: nom de pièce issu de l'OCR/texte
 
 
+class PieceDetectee(BaseModel):
+    """Une pièce reconstituée par fermeture topologique des murs."""
+    id: str
+    nom: str
+    surface_m2: float
+    perimetre_m: float
+    surface_plafond_m2: float
+    surface_carrelage_m2: float
+    surface_peinture_murs_m2: float
+    contour: list["Point"] = Field(default_factory=list)
+
+
 class MetreLigne(BaseModel):
     """Une ligne du métré : un poste quantifié."""
     poste: str
@@ -69,5 +81,6 @@ class RapportAnalyse(BaseModel):
     nb_calques: int
     calques: list[str]
     ouvrages: list[Ouvrage]
+    pieces: list[PieceDetectee] = Field(default_factory=list)
     metre: list[MetreLigne]
     alertes: list[str] = Field(default_factory=list)

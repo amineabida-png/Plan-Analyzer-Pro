@@ -1,5 +1,5 @@
 """
-BTP QUANT AI — API FastAPI (socle vectoriel).
+Plan Analyzer Pro — API FastAPI (socle vectoriel).
 Expose le moteur d'analyse DXF via une API REST et une interface web simple.
 
 Endpoints :
@@ -20,7 +20,7 @@ from core.analyse import analyser_dxf
 from core.export_excel import exporter_excel
 
 app = FastAPI(
-    title="BTP QUANT AI",
+    title="Plan Analyzer Pro",
     description="Analyse automatique de plans vectoriels et métré (socle DXF).",
     version="0.1.0",
 )
@@ -39,13 +39,13 @@ def accueil() -> HTMLResponse:
     if os.path.isfile(index):
         with open(index, encoding="utf-8") as f:
             return HTMLResponse(f.read())
-    return HTMLResponse("<h1>BTP QUANT AI</h1><p>Interface non trouvée.</p>")
+    return HTMLResponse("<h1>Plan Analyzer Pro</h1><p>Interface non trouvée.</p>")
 
 
 @app.get("/health")
 def health() -> dict:
     """Sonde de santé pour Railway / monitoring."""
-    return {"status": "ok", "service": "btp-quant-ai", "version": "0.1.0"}
+    return {"status": "ok", "service": "plan-analyzer-pro", "version": "0.1.0"}
 
 
 def _sauver_temp(fichier: UploadFile) -> str:
@@ -87,7 +87,7 @@ async def analyser_excel(fichier: UploadFile = File(...),
         return FileResponse(
             sortie,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            filename="metre_btp_quant_ai.xlsx",
+            filename="metre_plan_analyzer_pro.xlsx",
         )
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Erreur d'analyse : {e}")
