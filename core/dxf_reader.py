@@ -31,7 +31,9 @@ class LectureDXF:
     def __init__(self, chemin: str):
         self.chemin = chemin
         self.doc: Drawing = self._charger(chemin)
+        self._sanitiser_tables()
         self.msp = self.doc.modelspace()
+        self._sanitiser_entites()
         self.unite, self.facteur_vers_metre = self._detecter_unite()
 
     @staticmethod
@@ -48,8 +50,41 @@ class LectureDXF:
         except Exception:  # noqa: BLE001
             from ezdxf import recover
             doc, auditor = recover.readfile(chemin)
-            # auditor.errors liste les anomalies réparées ; on continue malgré tout.
             return doc
+
+    def _sanitiser_tables(self) -> None:
+        """
+        Répare les noms invalides (None) dans les tables block_records et calques.
+        Indispensable sur les DXF récupérés : un nom à None fait planter
+        doc.modelspace() (« name has to be a string »).
+        """
+        n = 0
+        try:
+            for br in self.doc.block_records:
+                if not isinstance(br.dxf.get("name", None), str):
+                    br.dxf.__dict__["name"] = f"_RECUP_BR_{n}"
+                    n += 1
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            for layer in self.doc.layers:
+                if not isinstance(layer.dxf.get("name", None), str):
+                    layer.dxf.__dict__["name"] = f"_RECUP_LAYER_{n}"
+                    n += 1
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _sanitiser_entites(self) -> None:
+        """Répare le calque des entités qui serait None (défaut : calque '0')."""
+        try:
+            for e in self.msp:
+                try:
+                    if not isinstance(e.dxf.get("layer", "0"), str):
+                        e.dxf.__dict__["layer"] = "0"
+                except Exception:  # noqa: BLE001
+                    continue
+        except Exception:  # noqa: BLE001
+            pass
 
     def _detecter_unite(self) -> tuple[Unite, float]:
         """
@@ -85,8 +120,13 @@ class LectureDXF:
         return (Unite.METRE, 1.0)  # ex : 10 -> m
 
     def calques(self) -> list[str]:
-        """Renvoie la liste triée des calques présents."""
-        return sorted(layer.dxf.name for layer in self.doc.layers)
+        """Renvoie la liste triée des calques présents (noms valides uniquement)."""
+        noms = []
+        for layer in self.doc.layers:
+            nom = layer.dxf.get("name", None)
+            if isinstance(nom, str):
+                noms.append(nom)
+        return sorted(noms)
 
     def resume_calques(self) -> list[dict]:
         """
@@ -98,7 +138,9 @@ class LectureDXF:
         stats: dict[str, dict] = {}
         for e in self.msp:
             try:
-                calque = e.dxf.layer
+                calque = e.dxf.get("layer", "0")
+                if not isinstance(calque, str):
+                    calque = "0"
             except Exception:  # noqa: BLE001
                 continue
             d = stats.setdefault(calque, {
@@ -125,59 +167,78 @@ class LectureDXF:
         """
         result = []
         for e in self.msp.query("LWPOLYLINE"):
-            pts = [(p[0], p[1]) for p in e.get_points("xy")]
-            result.append({
-                "calque": e.dxf.layer,
-                "points": pts,
-                "ferme": bool(e.closed),
-            })
+            try:
+                pts = [(p[0], p[1]) for p in e.get_points("xy")]
+                result.append({
+                    "calque": e.dxf.layer,
+                    "points": pts,
+                    "ferme": bool(e.closed),
+                })
+            except Exception:  # noqa: BLE001
+                continue
         for e in self.msp.query("POLYLINE"):
-            pts = [(v.dxf.location.x, v.dxf.location.y) for v in e.vertices]
-            result.append({
-                "calque": e.dxf.layer,
-                "points": pts,
-                "ferme": bool(e.is_closed),
-            })
+            try:
+                pts = [(v.dxf.location.x, v.dxf.location.y) for v in e.vertices]
+                result.append({
+                    "calque": e.dxf.layer,
+                    "points": pts,
+                    "ferme": bool(e.is_closed),
+                })
+            except Exception:  # noqa: BLE001
+                continue
         return result
 
     def lignes(self) -> list[dict]:
         """Extrait les segments LINE simples."""
         out = []
         for e in self.msp.query("LINE"):
-            out.append({
-                "calque": e.dxf.layer,
-                "points": [(e.dxf.start.x, e.dxf.start.y),
-                           (e.dxf.end.x, e.dxf.end.y)],
-                "ferme": False,
-            })
+            try:
+                out.append({
+                    "calque": e.dxf.layer,
+                    "points": [(e.dxf.start.x, e.dxf.start.y),
+                               (e.dxf.end.x, e.dxf.end.y)],
+                    "ferme": False,
+                })
+            except Exception:  # noqa: BLE001
+                continue
         return out
 
     def inserts(self) -> list[dict]:
         """Extrait les références de blocs (INSERT) : portes, fenêtres, mobilier..."""
         out = []
         for e in self.msp.query("INSERT"):
-            out.append({
-                "calque": e.dxf.layer,
-                "nom_bloc": e.dxf.name,
-                "position": (e.dxf.insert.x, e.dxf.insert.y),
-            })
+            try:
+                nom = e.dxf.get("name", "") or ""
+                out.append({
+                    "calque": e.dxf.layer,
+                    "nom_bloc": nom if isinstance(nom, str) else "",
+                    "position": (e.dxf.insert.x, e.dxf.insert.y),
+                })
+            except Exception:  # noqa: BLE001
+                continue
         return out
 
     def textes(self) -> list[dict]:
         """Extrait les TEXT et MTEXT (noms de pièces, cartouche, cotes...)."""
         out = []
         for e in self.msp.query("TEXT"):
-            out.append({
-                "calque": e.dxf.layer,
-                "texte": e.dxf.text.strip(),
-                "position": (e.dxf.insert.x, e.dxf.insert.y),
-            })
+            try:
+                out.append({
+                    "calque": e.dxf.layer,
+                    "texte": (e.dxf.text or "").strip(),
+                    "position": (e.dxf.insert.x, e.dxf.insert.y),
+                })
+            except Exception:  # noqa: BLE001
+                continue
         for e in self.msp.query("MTEXT"):
-            out.append({
-                "calque": e.dxf.layer,
-                "texte": e.text.strip(),
-                "position": (e.dxf.insert.x, e.dxf.insert.y),
-            })
+            try:
+                out.append({
+                    "calque": e.dxf.layer,
+                    "texte": (e.text or "").strip(),
+                    "position": (e.dxf.insert.x, e.dxf.insert.y),
+                })
+            except Exception:  # noqa: BLE001
+                continue
         return out
 
     def detecter_hsp(self) -> float | None:
