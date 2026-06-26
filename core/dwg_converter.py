@@ -82,10 +82,26 @@ def convertir_dwg_en_dxf(chemin_dwg: str) -> str:
                 check=True, capture_output=True, timeout=120,
             )
         except subprocess.CalledProcessError as e:
-            raise ConversionDWGError(
-                f"Échec de la conversion LibreDWG : {e.stderr.decode(errors='ignore')}"
-            ) from e
+            raise ConversionDWGError(_MESSAGE_DWG_ECHEC) from e
+        except subprocess.TimeoutExpired as e:
+            raise ConversionDWGError(_MESSAGE_DWG_ECHEC) from e
 
-    if not os.path.isfile(chemin_dxf):
-        raise ConversionDWGError("La conversion n'a produit aucun fichier DXF.")
+    # Vérifier que le DXF produit existe ET n'est pas vide/inexploitable.
+    # LibreDWG renvoie parfois un « succès » avec un fichier tronqué.
+    if not os.path.isfile(chemin_dxf) or os.path.getsize(chemin_dxf) < 1024:
+        raise ConversionDWGError(_MESSAGE_DWG_ECHEC)
     return chemin_dxf
+
+
+# Message unique, clair et actionnable, affiché à l'utilisateur quand la
+# conversion DWG gratuite échoue (fréquent sur les vrais plans AutoCAD complexes).
+_MESSAGE_DWG_ECHEC = (
+    "La conversion automatique de ce DWG a échoué : le convertisseur gratuit "
+    "(LibreDWG) ne sait pas lire ce fichier, trop complexe ou dans une version "
+    "récente d'AutoCAD.\n\n"
+    "➜ Solution fiable : ouvrez le plan dans AutoCAD, faites « Enregistrer sous » "
+    "et choisissez le format « AutoCAD DXF (*.dxf) », puis importez ce fichier .dxf "
+    "ici. Le DXF est lu parfaitement, sans perte.\n\n"
+    "(Le DWG est un format fermé d'Autodesk ; aucun outil 100 % gratuit ne le "
+    "convertit de façon fiable sur les plans professionnels.)"
+)

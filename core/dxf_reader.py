@@ -13,6 +13,18 @@ from ezdxf.document import Drawing
 
 from .models import Unite
 
+
+class LectureDXFError(Exception):
+    """Levée quand un DXF est trop endommagé pour être lu, même après réparation."""
+
+
+_MESSAGE_DXF_ILLISIBLE = (
+    "Ce fichier n'a pas pu être lu : il est endommagé ou mal formé (souvent un DXF "
+    "issu d'une conversion DWG imparfaite).\n\n"
+    "➜ Solution fiable : ré-exportez le plan en DXF propre depuis AutoCAD "
+    "(« Enregistrer sous » → « AutoCAD DXF (*.dxf) »), puis réimportez-le ici."
+)
+
 # Correspondance $INSUNITS (codes DXF) -> unité + facteur de conversion vers le mètre.
 # Référence : spécification DXF, groupe 70 de la variable $INSUNITS.
 _INSUNITS_MAP: dict[int, tuple[Unite, float]] = {
@@ -30,10 +42,16 @@ class LectureDXF:
 
     def __init__(self, chemin: str):
         self.chemin = chemin
-        self.doc: Drawing = self._charger(chemin)
-        self._sanitiser_tables()
-        self.msp = self.doc.modelspace()
-        self._sanitiser_entites()
+        try:
+            self.doc: Drawing = self._charger(chemin)
+            self._sanitiser_tables()
+            self.msp = self.doc.modelspace()
+            self._sanitiser_entites()
+        except LectureDXFError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            # Fichier trop abîmé malgré la récupération et la réparation des noms.
+            raise LectureDXFError(_MESSAGE_DXF_ILLISIBLE) from e
         self.unite, self.facteur_vers_metre = self._detecter_unite()
 
     @staticmethod

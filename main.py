@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from core.analyse import analyser_fichier
 from core.dwg_converter import conversion_disponible, ConversionDWGError
+from core.dxf_reader import LectureDXFError
 from core.export_excel import exporter_excel
 from core.models import RapportAnalyse
 from core.database import init_db, get_session
@@ -197,7 +198,7 @@ async def analyser(fichier: UploadFile = File(...),
             resultat["_sauvegarde"] = {
                 "analyse_id": analyse.id, "version": analyse.version}
         return JSONResponse(resultat)
-    except ConversionDWGError as e:
+    except (ConversionDWGError, LectureDXFError) as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Erreur d'analyse : {e}")
@@ -220,7 +221,7 @@ async def analyser_excel(fichier: UploadFile = File(...),
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             filename="metre_plan_analyzer_pro.xlsx",
         )
-    except ConversionDWGError as e:
+    except (ConversionDWGError, LectureDXFError) as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Erreur d'analyse : {e}")

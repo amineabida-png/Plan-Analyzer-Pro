@@ -165,7 +165,8 @@
         const cap = await res.json();
         const note = document.getElementById('dwgnote');
         if (cap.dwg) {
-          note.innerHTML = '✅ Conversion DWG active : vous pouvez glisser un .dwg directement.';
+          note.innerHTML = '⚠️ Conversion DWG disponible mais <b>limitée</b> : elle échoue souvent sur les plans AutoCAD complexes. '
+            + 'Le plus fiable reste d\'exporter en <b>.dxf</b> depuis AutoCAD (Enregistrer sous → DXF).';
         } else {
           note.innerHTML = 'ℹ️ Les fichiers .dxf fonctionnent directement. Pour le .dwg, '
             + 'installez « ODA File Converter » (gratuit) sur la machine, ou convertissez en .dxf en local.';
