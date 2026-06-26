@@ -1,19 +1,18 @@
 """
-Couche IA de Plan Analyzer Pro, propulsée par Groq (offre gratuite).
+Couche IA de Plan Analyzer Pro.
 
-Rôle de l'IA (Llama via Groq) :
-  - répondre en langage naturel aux questions sur le métré
-    (« quel est le volume de béton ? », « calcule uniquement les murs »…) ;
+Fournisseur configurable via la variable d'environnement LLM_PROVIDER :
+  - "groq"   (défaut) : Llama via Groq, offre gratuite (clé GROQ_API_KEY).
+  - "openai" : modèles OpenAI (clé OPENAI_API_KEY, facturée à l'usage).
+
+Rôle de l'IA :
+  - répondre en langage naturel aux questions sur le métré ;
   - vérifier la cohérence et suggérer des matériaux ;
-  - aider à interpréter les ouvrages.
+  - pré-classer les calques d'un plan réel.
 
 L'IA ne mesure pas elle-même : elle raisonne sur les données chiffrées déjà
-extraites par le moteur géométrique, qu'on lui fournit dans le contexte. Cela
-garantit des réponses ancrées sur des quantités réelles, pas inventées.
-
-Configuration : variable d'environnement GROQ_API_KEY (clé gratuite sur
-https://console.groq.com). Sans clé, l'IA renvoie un message d'invitation à la
-configurer, sans planter l'application.
+extraites par le moteur géométrique. Cela garantit des réponses ancrées sur des
+quantités réelles, pas inventées.
 """
 from __future__ import annotations
 import os
@@ -21,8 +20,10 @@ import json
 
 from .models import RapportAnalyse
 
-# Modèle Groq par défaut (configurable : les noms évoluent côté Groq).
+# Fournisseur : "groq" (gratuit) ou "openai" (payant à l'usage)
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "groq").lower()
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 
 _SYSTEM = (
     "Tu es un assistant métreur expert en BTP, travaillant au Maroc (devise : "
@@ -34,8 +35,19 @@ _SYSTEM = (
 
 
 def ia_disponible() -> bool:
-    """Indique si une clé Groq est configurée."""
+    """Indique si une clé est configurée pour le fournisseur choisi."""
+    if LLM_PROVIDER == "openai":
+        return bool(os.environ.get("OPENAI_API_KEY"))
     return bool(os.environ.get("GROQ_API_KEY"))
+
+
+def _creer_client():
+    """Renvoie (client, modele) selon le fournisseur configuré."""
+    if LLM_PROVIDER == "openai":
+        from openai import OpenAI
+        return OpenAI(api_key=os.environ["OPENAI_API_KEY"]), OPENAI_MODEL
+    from groq import Groq
+    return Groq(api_key=os.environ["GROQ_API_KEY"]), GROQ_MODEL
 
 
 def _contexte_metre(rapport: RapportAnalyse) -> str:
@@ -72,11 +84,10 @@ def repondre(question: str, rapport: RapportAnalyse) -> dict:
         }
 
     try:
-        from groq import Groq
-        client = Groq(api_key=os.environ["GROQ_API_KEY"])
+        client, modele = _creer_client()
         contexte = _contexte_metre(rapport)
         completion = client.chat.completions.create(
-            model=GROQ_MODEL,
+            model=modele,
             messages=[
                 {"role": "system", "content": _SYSTEM},
                 {"role": "user",
@@ -126,8 +137,7 @@ def mapper_calques(calques: list[str]) -> dict:
 
     try:
         import json as _json
-        from groq import Groq
-        client = Groq(api_key=os.environ["GROQ_API_KEY"])
+        client, modele = _creer_client()
         liste = "\n".join(f"- {c}" for c in calques)
         prompt = (
             "Voici les noms de calques d'un plan de bâtiment (DXF). Pour chacun, "
@@ -137,7 +147,7 @@ def mapper_calques(calques: list[str]) -> dict:
             "texte autour.\n\nCalques :\n" + liste
         )
         completion = client.chat.completions.create(
-            model=GROQ_MODEL,
+            model=modele,
             messages=[
                 {"role": "system",
                  "content": "Tu es un expert BTP qui classe des calques de plans "
@@ -145,7 +155,7 @@ def mapper_calques(calques: list[str]) -> dict:
                 {"role": "user", "content": prompt},
             ],
             temperature=0.0,
-            max_tokens=1500,
+            max_tokens=2500,
             response_format={"type": "json_object"},
         )
         brut = completion.choices[0].message.content.strip()

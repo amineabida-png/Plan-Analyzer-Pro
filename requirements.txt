@@ -9,6 +9,7 @@ sqlalchemy>=2.0       # ORM (MIT)
 psycopg2-binary>=2.9  # Driver PostgreSQL (LGPL) — pour Railway
 # --- IA ---
 groq>=0.11            # Client Groq / Llama (MIT)
+openai>=1.40          # Client OpenAI (alternatif, payant) (MIT)
 # --- API web ---
 fastapi>=0.110         # Framework API (MIT)
 uvicorn[standard]>=0.27  # Serveur ASGI (BSD)

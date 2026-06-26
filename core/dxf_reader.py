@@ -30,9 +30,26 @@ class LectureDXF:
 
     def __init__(self, chemin: str):
         self.chemin = chemin
-        self.doc: Drawing = ezdxf.readfile(chemin)
+        self.doc: Drawing = self._charger(chemin)
         self.msp = self.doc.modelspace()
         self.unite, self.facteur_vers_metre = self._detecter_unite()
+
+    @staticmethod
+    def _charger(chemin: str) -> Drawing:
+        """
+        Charge un DXF de façon robuste.
+        1. Lecture standard (rapide).
+        2. Si le fichier est malformé (ex : DXF produit par LibreDWG, « missing
+           EOF tag », tags invalides…), bascule sur ezdxf.recover qui répare et
+           récupère un maximum de contenu au lieu d'échouer.
+        """
+        try:
+            return ezdxf.readfile(chemin)
+        except Exception:  # noqa: BLE001
+            from ezdxf import recover
+            doc, auditor = recover.readfile(chemin)
+            # auditor.errors liste les anomalies réparées ; on continue malgré tout.
+            return doc
 
     def _detecter_unite(self) -> tuple[Unite, float]:
         """

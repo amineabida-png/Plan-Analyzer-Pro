@@ -71,6 +71,7 @@ def capabilities() -> dict:
         "dxf": True,
         "dwg": conversion_disponible(),
         "ia": ai_groq.ia_disponible(),
+        "ia_fournisseur": ai_groq.LLM_PROVIDER,
     }
 
 
