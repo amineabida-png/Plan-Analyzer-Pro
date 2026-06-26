@@ -217,6 +217,9 @@
         st.textContent = '✅ Métré recalculé avec vos calques.';
       } catch (e) { st.textContent = 'Erreur : ' + e.message; }
     });
+
+    // Assistant IA
+    document.getElementById('ask').addEventListener('click', async () => {
       if (!lastReport) return;
       const q = document.getElementById('aiq').value.trim();
       const ans = document.getElementById('aianswer');
