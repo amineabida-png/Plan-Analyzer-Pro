@@ -22,6 +22,8 @@ Analyse automatique de plans de construction **vectoriels (DXF)** et génératio
 - Importe un fichier **.dxf** ou **.dwg** (DWG converti automatiquement)
 - Détecte automatiquement l'**unité** du dessin (même si non spécifiée) et les **calques**
 - Détecte la **hauteur sous plafond** si elle est annotée sur le plan (sinon valeur à valider)
+- **Lecture PDF** : vectoriel (fiable, géométrie extraite) et scanné (OCR +
+  vision, approximatif). L'échelle (1:50, 1:100…) est détectée ou réglable.
 - **Détection AUTOMATIQUE des pièces par géométrie** : fonctionne sans classer les
   calques, quel que soit leur nom. Le métré (surfaces) est calculé tout seul.
 - Classification des calques **optionnelle** : seulement pour affiner si besoin

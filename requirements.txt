@@ -14,3 +14,7 @@ openai>=1.40          # Client OpenAI (alternatif, payant) (MIT)
 fastapi>=0.110         # Framework API (MIT)
 uvicorn[standard]>=0.27  # Serveur ASGI (BSD)
 python-multipart>=0.0.9  # Upload de fichiers (Apache 2.0)
+# --- Lecture PDF (vectoriel + scanné) ---
+pymupdf>=1.24          # Extraction vectorielle + rasterisation PDF (AGPL/commercial)
+opencv-python-headless>=4.9  # Vision : détection des pièces sur PDF scanné (Apache 2.0)
+pytesseract>=0.3.10    # OCR du texte sur PDF scanné (Apache 2.0 ; binaire tesseract requis)

@@ -9,4 +9,4 @@
 # refaites un git push. L'app continuera d'accepter les DXF normalement.
 
 [phases.setup]
-nixPkgs = ["...", "libredwg"]
+nixPkgs = ["...", "libredwg", "tesseract"]

@@ -66,14 +66,18 @@
 
     <div class="card">
       <div class="drop" id="drop">
-        <p>Glissez un fichier <strong>.dxf</strong> ou <strong>.dwg</strong> ici, ou cliquez pour parcourir</p>
+        <p>Glissez un fichier <strong>.dxf</strong>, <strong>.dwg</strong> ou <strong>.pdf</strong> ici, ou cliquez pour parcourir</p>
         <p class="sub" id="fname">Aucun fichier sélectionné</p>
       </div>
-      <input type="file" id="file" accept=".dxf,.dwg" />
+      <input type="file" id="file" accept=".dxf,.dwg,.pdf" />
       <div class="row">
         <label class="f">Hauteur sous plafond (m)
           <input type="number" id="hsp" placeholder="auto" step="0.05" min="2" max="5"
                  title="Laisser vide : l'app lit le HSP sur le plan, sinon valeur standard" />
+        </label>
+        <label class="f hidden" id="echellewrap">Échelle PDF (1:)
+          <input type="number" id="echelle" placeholder="ex. 50" step="1" min="5" max="2000"
+                 title="Échelle du plan PDF, ex. 50 pour 1:50. Laisser vide : détectée ou supposée." />
         </label>
         <button id="go" disabled>Analyser le plan</button>
         <button id="xls" class="ghost hidden">Télécharger Excel</button>
@@ -156,9 +160,12 @@
     fileInput.addEventListener('change', () => { if (fileInput.files.length) setFile(fileInput.files[0]); });
 
     function setFile(f) {
-      const ok = f.name.toLowerCase().endsWith('.dxf') || f.name.toLowerCase().endsWith('.dwg');
-      if (!ok) { alert('Veuillez choisir un fichier .dxf ou .dwg'); return; }
+      const n = f.name.toLowerCase();
+      const ok = n.endsWith('.dxf') || n.endsWith('.dwg') || n.endsWith('.pdf');
+      if (!ok) { alert('Veuillez choisir un fichier .dxf, .dwg ou .pdf'); return; }
       selected = f; fname.textContent = f.name; go.disabled = false;
+      // Champ échelle visible uniquement pour les PDF
+      document.getElementById('echellewrap').classList.toggle('hidden', !n.endsWith('.pdf'));
     }
 
     // Vérifie si la conversion DWG est disponible sur le serveur
@@ -249,6 +256,10 @@
     function fd() {
       const form = new FormData();
       form.append('fichier', selected);
+      const ech = document.getElementById('echelle').value;
+      if (ech && selected && selected.name.toLowerCase().endsWith('.pdf')) {
+        form.append('echelle_pdf', ech);
+      }
       return form;
     }
     function hspParam() {

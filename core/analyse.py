@@ -24,12 +24,13 @@ HSP_DEFAUT = 2.70
 
 def analyser_fichier(chemin: str, hsp_m: float | None = None,
                      utiliser_ia: bool = True,
-                     mapping_manuel: dict | None = None) -> RapportAnalyse:
+                     mapping_manuel: dict | None = None,
+                     echelle_pdf: int | None = None) -> RapportAnalyse:
     """
-    Analyse un fichier DWG ou DXF.
-    Si le fichier est un DWG, il est d'abord converti en DXF automatiquement.
-    mapping_manuel : classification de calques fournie par l'utilisateur
-                     (prioritaire sur l'IA).
+    Analyse un fichier DWG, DXF ou PDF.
+    - DWG : converti d'abord en DXF.
+    - PDF : lu en vectoriel ou (si scanné) par OCR + vision. echelle_pdf = N
+            pour une échelle 1:N (sinon détectée ou approximée).
     """
     ext = os.path.splitext(chemin)[1].lower()
     if ext == ".dwg":
@@ -38,24 +39,46 @@ def analyser_fichier(chemin: str, hsp_m: float | None = None,
                                mapping_manuel=mapping_manuel)
         rapport.fichier = chemin
         return rapport
+    if ext == ".pdf":
+        return analyser_pdf(chemin, hsp_m=hsp_m, mapping_manuel=mapping_manuel,
+                            echelle=echelle_pdf)
     return analyser_dxf(chemin, hsp_m=hsp_m, utiliser_ia=utiliser_ia,
                         mapping_manuel=mapping_manuel)
+
+
+def analyser_pdf(chemin: str, hsp_m: float | None = None,
+                 mapping_manuel: dict | None = None,
+                 echelle: int | None = None) -> RapportAnalyse:
+    """Analyse un PDF de plan (vectoriel ou scanné)."""
+    from .pdf_reader import LecturePDF
+    lecture = LecturePDF(chemin, echelle=echelle)
+    rapport = _analyser_lecteur(lecture, hsp_m=hsp_m, utiliser_ia=False,
+                                mapping_manuel=mapping_manuel)
+    # Alertes spécifiques au PDF (fiabilité, échelle)
+    for a in lecture.alertes:
+        rapport.alertes.insert(0, a)
+    return rapport
 
 
 def analyser_dxf(chemin: str, hsp_m: float | None = None,
                  utiliser_ia: bool = True,
                  mapping_manuel: dict | None = None) -> RapportAnalyse:
-    """
-    Pipeline complet d'analyse d'un fichier DXF.
+    """Pipeline complet d'analyse d'un fichier DXF."""
+    lecture = LectureDXF(chemin)
+    return _analyser_lecteur(lecture, hsp_m=hsp_m, utiliser_ia=utiliser_ia,
+                             mapping_manuel=mapping_manuel)
 
-    hsp_m : si None, l'app tente de lire la hauteur sous plafond sur le plan ;
-            si absente, elle prend une valeur par défaut (à valider).
-    utiliser_ia : si True et clé Groq présente, l'IA pré-classe les calques.
-    mapping_manuel : {nom_calque: categorie} fourni par l'utilisateur. PRIORITAIRE.
-                     Quand il est fourni, on ne rappelle pas l'IA (gain de temps).
+
+def _analyser_lecteur(lecture, hsp_m: float | None = None,
+                      utiliser_ia: bool = True,
+                      mapping_manuel: dict | None = None) -> RapportAnalyse:
+    """
+    Moteur d'analyse partagé : fonctionne avec tout lecteur exposant la même
+    interface (LectureDXF, LecturePDF). Détecte pièces + surfaces, et le métré
+    complet en mode affiné.
     """
     # 1. Lecture
-    lecture = LectureDXF(chemin)
+    chemin = getattr(lecture, "chemin", "plan")
     calques = lecture.calques()
     calques_detail = lecture.resume_calques()
 

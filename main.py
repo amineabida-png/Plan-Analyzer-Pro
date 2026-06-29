@@ -71,6 +71,7 @@ def capabilities() -> dict:
     return {
         "dxf": True,
         "dwg": conversion_disponible(),
+        "pdf": True,
         "ia": ai_groq.ia_disponible(),
         "ia_fournisseur": ai_groq.LLM_PROVIDER,
     }
@@ -159,11 +160,16 @@ def coherence(data: dict) -> dict:
 def _sauver_temp(fichier: UploadFile) -> str:
     """Écrit l'upload dans un fichier temporaire et renvoie son chemin."""
     nom = (fichier.filename or "").lower()
-    if not (nom.endswith(".dxf") or nom.endswith(".dwg")):
+    if nom.endswith(".dwg"):
+        suffix = ".dwg"
+    elif nom.endswith(".pdf"):
+        suffix = ".pdf"
+    elif nom.endswith(".dxf"):
+        suffix = ".dxf"
+    else:
         raise HTTPException(
             status_code=400,
-            detail="Formats acceptés : .dxf et .dwg.")
-    suffix = ".dwg" if nom.endswith(".dwg") else ".dxf"
+            detail="Formats acceptés : .dxf, .dwg et .pdf.")
     fd, chemin = tempfile.mkstemp(suffix=suffix)
     with os.fdopen(fd, "wb") as out:
         out.write(fichier.file.read())
@@ -175,10 +181,12 @@ async def analyser(fichier: UploadFile = File(...),
                    hsp: float | None = None,
                    projet_id: int | None = None,
                    mapping: str | None = Form(None),
+                   echelle_pdf: int | None = Form(None),
                    db: Session = Depends(get_session)) -> JSONResponse:
     """
-    Analyse un DXF ou DWG et renvoie le rapport de métré complet en JSON.
+    Analyse un DXF, DWG ou PDF et renvoie le rapport de métré complet en JSON.
     mapping : JSON {nom_calque: categorie} fourni par l'utilisateur (prioritaire).
+    echelle_pdf : dénominateur d'échelle pour un PDF (ex : 50 pour 1:50).
     Si projet_id est fourni, l'analyse est sauvegardée comme nouvelle version.
     """
     import json as _json
@@ -190,7 +198,8 @@ async def analyser(fichier: UploadFile = File(...),
             mapping_manuel = None
     chemin = _sauver_temp(fichier)
     try:
-        rapport = analyser_fichier(chemin, hsp_m=hsp, mapping_manuel=mapping_manuel)
+        rapport = analyser_fichier(chemin, hsp_m=hsp, mapping_manuel=mapping_manuel,
+                                   echelle_pdf=echelle_pdf)
         rapport.fichier = fichier.filename or rapport.fichier
         resultat = rapport.model_dump()
         if projet_id is not None:
@@ -209,11 +218,12 @@ async def analyser(fichier: UploadFile = File(...),
 
 @app.post("/api/analyze/excel")
 async def analyser_excel(fichier: UploadFile = File(...),
-                         hsp: float | None = None) -> FileResponse:
-    """Analyse un DXF/DWG et renvoie le métré sous forme de fichier Excel."""
+                         hsp: float | None = None,
+                         echelle_pdf: int | None = Form(None)) -> FileResponse:
+    """Analyse un DXF/DWG/PDF et renvoie le métré sous forme de fichier Excel."""
     chemin = _sauver_temp(fichier)
     try:
-        rapport = analyser_fichier(chemin, hsp_m=hsp)
+        rapport = analyser_fichier(chemin, hsp_m=hsp, echelle_pdf=echelle_pdf)
         sortie = tempfile.mktemp(suffix=".xlsx")
         exporter_excel(rapport, sortie)
         return FileResponse(
