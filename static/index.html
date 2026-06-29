@@ -83,8 +83,8 @@
     </div>
 
     <div class="card hidden" id="layercard">
-      <h3 style="margin-bottom:.3rem;font-size:1.05rem">Classification des calques</h3>
-      <p class="sub" style="margin-bottom:.8rem">Vérifiez et corrigez la catégorie de chaque calque (l'IA a pré-rempli). Les gros calques sont en haut. Puis recalculez.</p>
+      <h3 style="margin-bottom:.3rem;font-size:1.05rem">Affiner la classification des calques <span class="sub">(optionnel)</span></h3>
+      <p class="sub" style="margin-bottom:.8rem">Le métré est déjà calculé automatiquement. Utilisez ce tableau seulement si vous voulez corriger ou préciser certains calques, puis recalculez.</p>
       <div style="max-height:320px;overflow:auto;border:1px solid var(--border);border-radius:8px">
         <table style="margin:0">
           <thead><tr>
@@ -109,6 +109,9 @@
         <tbody id="rows"></tbody>
       </table>
       <div id="alerts"></div>
+      <div class="row" style="margin-top:1rem">
+        <button id="toggleLayers" class="ghost">⚙ Affiner la classification des calques (optionnel)</button>
+      </div>
       <div class="row" style="margin-top:1rem;border-top:1px solid var(--border);padding-top:1rem">
         <input type="text" id="projname" placeholder="Nom du projet"
                style="background:#0b1220;border:1px solid var(--border);color:var(--text);border-radius:8px;padding:.5rem .7rem;flex:1;min-width:160px" />
@@ -198,6 +201,13 @@
       } catch (e) { st.textContent = 'Erreur : ' + e.message; }
     });
 
+    // Affiche/masque le tableau des calques (optionnel)
+    document.getElementById('toggleLayers').addEventListener('click', () => {
+      const lc = document.getElementById('layercard');
+      lc.classList.toggle('hidden');
+      if (!lc.classList.contains('hidden')) lc.scrollIntoView({behavior:'smooth'});
+    });
+
     // Recalcul avec la classification de calques validée par l'utilisateur
     document.getElementById('recalc').addEventListener('click', async () => {
       if (!selected) return;
@@ -281,11 +291,10 @@
       lastReport = data;
       result.classList.remove('hidden');
       document.getElementById('aicard').classList.remove('hidden');
-      // Tableau de classification des calques
+      // Tableau de classification des calques (construit mais MASQUÉ : optionnel)
       const lc = document.getElementById('layercard');
       const detail = data.calques_detail || [];
       if (detail.length) {
-        lc.classList.remove('hidden');
         const mapIa = data.mapping_ia || {};
         document.getElementById('layerrows').innerHTML = detail.map(c => {
           const cur = mapIa[c.calque] || 'autre';

@@ -107,3 +107,85 @@ class DetecteurPieces:
         # Tri par surface décroissante pour la lisibilité
         pieces.sort(key=lambda p: p.surface_m2, reverse=True)
         return pieces
+
+    def detecter_auto(self, polylignes: list[dict], lignes: list[dict],
+                      textes: list[dict],
+                      longueur_min_segment_m: float = 0.25) -> list[PieceDetectee]:
+        """
+        Détection AUTOMATIQUE des pièces, SANS classification de calques.
+        Principe : toute la géométrie du plan est utilisée. On garde les segments
+        assez longs (les murs ; on écarte les micro-segments de mobilier, symboles
+        et textes), on polygonise, et on conserve les faces dont la surface est
+        plausible pour une pièce. Ça marche quel que soit le nom des calques.
+
+        Avantage : aucun clic, aucun mapping. Limite : sur les plans très chargés,
+        quelques faux positifs/négatifs possibles — à vérifier d'un coup d'œil.
+        """
+        # 1. Rassembler TOUS les segments (toutes sources confondues)
+        segments: list[LineString] = []
+        seuil_unites = longueur_min_segment_m / self.k  # min en unités de dessin
+        for geo in polylignes + lignes:
+            pts = geo["points"]
+            ferme = geo.get("ferme", False)
+            if len(pts) < 2:
+                continue
+            paires = list(zip(pts, pts[1:]))
+            if ferme:
+                paires.append((pts[-1], pts[0]))
+            for a, b in paires:
+                # Garder les segments assez longs (murs), écarter le bruit
+                dx, dy = b[0] - a[0], b[1] - a[1]
+                if (dx * dx + dy * dy) ** 0.5 >= seuil_unites and a != b:
+                    segments.append(LineString([a, b]))
+        if len(segments) < 3:
+            return []
+
+        # 2. Noder + polygoniser tout
+        try:
+            merged = unary_union(segments)
+            faces = list(polygonize(merged))
+        except Exception:  # noqa: BLE001
+            return []
+        if not faces:
+            return []
+
+        # Étiquettes de pièces = tous les textes courts (noms de pièces probables)
+        labels = []
+        for t in textes:
+            txt = (t.get("texte") or "").strip()
+            if txt and len(txt) <= 30:
+                x, y = t["position"]
+                labels.append((txt, x, y))
+
+        pieces: list[PieceDetectee] = []
+        for face in faces:
+            surface = face.area * (self.k ** 2)
+            if surface < self.surface_min or surface > self.surface_max:
+                continue
+            # Écarter les faces trop "filiformes" (rapport surface/périmètre faible)
+            perimetre = face.length * self.k
+            if perimetre <= 0:
+                continue
+            compacite = (4 * 3.14159 * face.area) / (face.length ** 2)
+            if compacite < 0.08:  # face très allongée = probablement pas une pièce
+                continue
+
+            nom = None
+            for (lname, lx, ly) in labels:
+                if face.contains(Point(lx, ly)):
+                    nom = lname
+                    break
+
+            pieces.append(PieceDetectee(
+                id=str(uuid.uuid4())[:8],
+                nom=nom or "Pièce sans nom",
+                surface_m2=round(surface, 2),
+                perimetre_m=round(perimetre, 2),
+                surface_plafond_m2=round(surface, 2),
+                surface_carrelage_m2=round(surface, 2),
+                surface_peinture_murs_m2=round(perimetre * self.hsp, 2),
+                contour=[PtModel(x=x, y=y) for (x, y) in face.exterior.coords],
+            ))
+
+        pieces.sort(key=lambda p: p.surface_m2, reverse=True)
+        return pieces

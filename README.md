@@ -22,9 +22,9 @@ Analyse automatique de plans de construction **vectoriels (DXF)** et génératio
 - Importe un fichier **.dxf** ou **.dwg** (DWG converti automatiquement)
 - Détecte automatiquement l'**unité** du dessin (même si non spécifiée) et les **calques**
 - Détecte la **hauteur sous plafond** si elle est annotée sur le plan (sinon valeur à valider)
-- **Classification des calques assistée** : l'IA pré-remplit, vous validez/corrigez
-  chaque calque en quelques clics, puis recalculez (comme les outils de métré pro).
-  Classer ~80 calques classe d'un coup des milliers d'entités — pas de saisie entité par entité
+- **Détection AUTOMATIQUE des pièces par géométrie** : fonctionne sans classer les
+  calques, quel que soit leur nom. Le métré (surfaces) est calculé tout seul.
+- Classification des calques **optionnelle** : seulement pour affiner si besoin
 - Classe les **ouvrages** (murs ext., cloisons, poteaux, portes, fenêtres, pièces)
 - **Détecte les pièces** par fermeture topologique des murs (Shapely) et calcule
   leurs **surfaces** : habitable, carrelage, plafond, peinture murs

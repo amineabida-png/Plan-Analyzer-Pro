@@ -90,10 +90,19 @@ def analyser_dxf(chemin: str, hsp_m: float | None = None,
         textes=lecture.textes(),
     )
 
-    # 4. Détection des pièces (fermeture topologique des murs)
+    # 4. Détection des pièces
     detecteur_pieces = DetecteurPieces(
         facteur_vers_metre=lecture.facteur_vers_metre, hsp_m=hsp_m)
+    polylignes = lecture.polylignes()
+    lignes_geo = lecture.lignes()
+    textes_geo = lecture.textes()
+    # 4a. Via les murs classés (précis si la classification a marché)
     pieces = detecteur_pieces.detecter(ouvrages)
+    methode_pieces = "calques"
+    # 4b. Repli AUTOMATIQUE par géométrie si la classification n'a rien donné
+    if not pieces:
+        pieces = detecteur_pieces.detecter_auto(polylignes, lignes_geo, textes_geo)
+        methode_pieces = "auto-géométrie"
 
     # 5. Métré
     calc = CalculateurMetre(hsp_m=hsp_m)
@@ -107,6 +116,18 @@ def analyser_dxf(chemin: str, hsp_m: float | None = None,
                           f"valeur par défaut {hsp_m} m utilisée — à ajuster si besoin.")
     if message_ia:
         alertes.append("IA calques : " + message_ia)
+    if pieces:
+        if methode_pieces == "auto-géométrie":
+            alertes.insert(0,
+                f"{len(pieces)} pièce(s) détectée(s) AUTOMATIQUEMENT par géométrie "
+                "(sans classification des calques). Vérifiez d'un coup d'œil ; "
+                "affinez via le tableau des calques seulement si besoin.")
+        else:
+            alertes.append(f"{len(pieces)} pièce(s) détectée(s) via les calques classés.")
+    else:
+        alertes.append(
+            "Aucune pièce détectée automatiquement : le plan utilise peut-être un "
+            "tracé inhabituel. Essayez de classer les calques 'mur' dans le tableau.")
 
     return RapportAnalyse(
         fichier=chemin,
