@@ -106,7 +106,7 @@ class DetecteurPieces:
     """Reconstruit les pièces et calcule leurs surfaces."""
 
     def __init__(self, facteur_vers_metre: float, hsp_m: float = 2.70,
-                 surface_min_m2: float = 1.0, surface_max_m2: float = 500.0):
+                 surface_min_m2: float = 1.5, surface_max_m2: float = 500.0):
         self.k = facteur_vers_metre
         self.hsp = hsp_m
         # Garde-fous : une vraie pièce fait au moins ~1 m² et rarement > 500 m².

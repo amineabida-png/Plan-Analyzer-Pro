@@ -69,37 +69,46 @@ def analyser_dxf(chemin: str, hsp_m: float | None = None,
         else:
             hsp_m = HSP_DEFAUT
 
-    # 2. Classification des calques : mapping manuel prioritaire, sinon IA
-    mapping = {}
+    # 2. Mode de fonctionnement :
+    #    - AUTO (pas de mapping manuel) : on n'utilise PAS la classification par
+    #      noms pour le métré (elle est trop peu fiable et produit des chiffres
+    #      aberrants). On se limite à ce qui est fiable : pièces + surfaces.
+    #      L'IA sert seulement à pré-remplir le tableau optionnel.
+    #    - AFFINÉ (mapping manuel fourni) : l'utilisateur a classé les calques,
+    #      on calcule alors le métré complet (murs, portes, fenêtres, poteaux).
+    mode_affine = bool(mapping_manuel)
+    mapping = {}            # mapping réellement utilisé pour le métré
+    suggestions_ia = {}     # suggestions IA pour le tableau (n'affectent pas le métré)
     message_ia = ""
-    if mapping_manuel:
+    if mode_affine:
         mapping = {k: v for k, v in mapping_manuel.items() if v and v != "autre"}
         message_ia = f"{len(mapping)} calque(s) classé(s) manuellement."
     elif utiliser_ia and ai_groq.ia_disponible():
         res = ai_groq.mapper_calques(calques)
-        mapping = res.get("mapping", {})
-        message_ia = res.get("message", "")
+        suggestions_ia = res.get("mapping", {})  # juste des suggestions
 
-    # 3. Détection des ouvrages (avec mapping IA si dispo)
-    detecteur = DetecteurOuvrages(
-        facteur_vers_metre=lecture.facteur_vers_metre, mapping_calques=mapping)
-    ouvrages = detecteur.detecter(
-        polylignes=lecture.polylignes(),
-        lignes=lecture.lignes(),
-        inserts=lecture.inserts(),
-        textes=lecture.textes(),
-    )
+    polylignes = lecture.polylignes()
+    lignes_geo = lecture.lignes()
+    textes_geo = lecture.textes()
+
+    # 3. Détection des ouvrages : UNIQUEMENT en mode affiné (avec mapping validé).
+    #    En mode auto, on ne classe pas d'ouvrages (évite portes/murs fantômes).
+    ouvrages = []
+    if mode_affine:
+        detecteur = DetecteurOuvrages(
+            facteur_vers_metre=lecture.facteur_vers_metre, mapping_calques=mapping)
+        ouvrages = detecteur.detecter(
+            polylignes=polylignes, lignes=lignes_geo,
+            inserts=lecture.inserts(), textes=textes_geo,
+        )
 
     # 4. Détection des pièces
     detecteur_pieces = DetecteurPieces(
         facteur_vers_metre=lecture.facteur_vers_metre, hsp_m=hsp_m)
-    polylignes = lecture.polylignes()
-    lignes_geo = lecture.lignes()
-    textes_geo = lecture.textes()
-    # 4a. Via les murs classés (précis si la classification a marché)
-    pieces = detecteur_pieces.detecter(ouvrages)
+    # 4a. En mode affiné, via les murs classés ; sinon repli auto plus bas
+    pieces = detecteur_pieces.detecter(ouvrages) if mode_affine else []
     methode_pieces = "calques"
-    # 4b. Repli AUTOMATIQUE par géométrie si la classification n'a rien donné
+    # 4b. Détection AUTOMATIQUE par géométrie (mode auto, ou si rien trouvé)
     if not pieces:
         pieces = detecteur_pieces.detecter_auto(polylignes, lignes_geo, textes_geo)
         methode_pieces = "auto-géométrie"
@@ -118,19 +127,23 @@ def analyser_dxf(chemin: str, hsp_m: float | None = None,
         alertes.insert(0, f"Hauteur sous plafond non trouvée sur le plan : "
                           f"valeur par défaut {hsp_m} m utilisée — à ajuster si besoin.")
     if message_ia:
-        alertes.append("IA calques : " + message_ia)
+        alertes.append(message_ia)
     if pieces:
         if methode_pieces == "auto-géométrie":
             alertes.insert(0,
                 f"{len(pieces)} pièce(s) détectée(s) AUTOMATIQUEMENT par géométrie "
-                "(sans classification des calques). Vérifiez d'un coup d'œil ; "
-                "affinez via le tableau des calques seulement si besoin.")
+                "(sans classification). Vérifiez d'un coup d'œil.")
         else:
             alertes.append(f"{len(pieces)} pièce(s) détectée(s) via les calques classés.")
     else:
         alertes.append(
-            "Aucune pièce détectée automatiquement : le plan utilise peut-être un "
-            "tracé inhabituel. Essayez de classer les calques 'mur' dans le tableau.")
+            "Aucune pièce détectée : plan au tracé inhabituel. Essayez de classer "
+            "les calques 'mur' dans le tableau.")
+    if not mode_affine:
+        alertes.append(
+            "Mode automatique : seules les SURFACES sont affichées (fiables). "
+            "Pour obtenir les longueurs de murs, portes, fenêtres et poteaux, "
+            "classez les calques correspondants via « Affiner » puis recalculez.")
 
     return RapportAnalyse(
         fichier=chemin,
@@ -143,7 +156,7 @@ def analyser_dxf(chemin: str, hsp_m: float | None = None,
         pieces=pieces,
         hsp_m=hsp_m,
         hsp_detectee=hsp_detectee,
-        mapping_ia=mapping,
+        mapping_ia=(mapping if mode_affine else suggestions_ia),
         metre=metre,
         alertes=alertes,
     )
