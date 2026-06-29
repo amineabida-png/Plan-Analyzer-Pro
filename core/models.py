@@ -88,3 +88,5 @@ class RapportAnalyse(BaseModel):
     mapping_ia: dict = Field(default_factory=dict)  # calques classés par l'IA
     metre: list[MetreLigne]
     alertes: list[str] = Field(default_factory=list)
+    # Ouvertures de façade détectées (copilote rideau métallique) : à valider
+    ouvertures_facade: list[dict] = Field(default_factory=list)

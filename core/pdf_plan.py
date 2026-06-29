@@ -34,6 +34,60 @@ _SURF_MAX = 5000.0
 _ZOOM = 3.0  # rastérisation : 216 dpi
 
 
+def _ouvertures_facade(doc, cartouches: list[str], echelle: int | None):
+    """Détecte les ouvertures rectangulaires sur les pages de façade.
+    Renvoie une liste de candidats {largeur_m, hauteur_m, surface_m2} à VALIDER
+    par l'utilisateur (copilote pour le rideau métallique de devanture)."""
+    import math
+    from shapely.geometry import LineString
+    from shapely.ops import unary_union, polygonize
+
+    out = []
+    for i in range(doc.page_count):
+        if "facade" not in cartouches[i].lower() and "façade" not in cartouches[i].lower():
+            continue
+        page = doc[i]
+        f = (echelle and _MM * echelle / 1000.0) or _echelle(page, vmin=40)
+        if not f:
+            continue
+        segs = []
+        for d in page.get_drawings():
+            for it in d.get("items", []):
+                if it[0] == "l":
+                    p1, p2 = it[1], it[2]
+                    if math.hypot(p2.x - p1.x, p2.y - p1.y) > 5:
+                        segs.append(LineString([(p1.x, p1.y), (p2.x, p2.y)]))
+                elif it[0] == "re":
+                    r = it[1]
+                    pts = [(r.x0, r.y0), (r.x1, r.y0), (r.x1, r.y1), (r.x0, r.y1)]
+                    for a, b in zip(pts, pts[1:] + pts[:1]):
+                        segs.append(LineString([a, b]))
+        if len(segs) < 4:
+            continue
+        try:
+            faces = list(polygonize(unary_union(segs)))
+        except Exception:  # noqa: BLE001
+            continue
+        vus = set()
+        for fc in faces:
+            minx, miny, maxx, maxy = fc.bounds
+            bw, bh = (maxx - minx), (maxy - miny)
+            if bw <= 0 or bh <= 0:
+                continue
+            W, H = bw * f, bh * f
+            rect = fc.area / (bw * bh)  # ~1 si vraiment rectangulaire
+            # Ouverture plausible : 0.5–8 m large, 0.5–4 m haut, assez rectangulaire
+            if 0.5 <= W <= 8 and 0.5 <= H <= 4 and rect > 0.7:
+                cle = (round(W, 1), round(H, 1))
+                if cle in vus:
+                    continue
+                vus.add(cle)
+                out.append({"largeur_m": round(W, 2), "hauteur_m": round(H, 2),
+                            "surface_m2": round(W * H, 2), "page": i + 1})
+    out.sort(key=lambda o: o["surface_m2"], reverse=True)
+    return out[:12]
+
+
 def analyser_pdf_plan(chemin: str, echelle: int | None = None) -> RapportAnalyse:
     import fitz
 
@@ -125,10 +179,17 @@ def analyser_pdf_plan(chemin: str, echelle: int | None = None) -> RapportAnalyse
             f"Surface annoncée sur le plan : {surface_annoncee} m² | "
             f"calculée : {round(s_princ,1)} m² (écart {ecart:.0f} %).")
 
-    # Rideau métallique : nécessite la façade, non automatisé de façon fiable
-    alertes.append(
-        "Rideau métallique de devanture : non calculé automatiquement (nécessite "
-        "la lecture de la façade et une validation). À traiter séparément.")
+    # Rideau métallique : ouvertures de façade détectées, à valider (option A)
+    ouvertures = _ouvertures_facade(doc, cartouches, echelle)
+    if ouvertures:
+        alertes.append(
+            f"Rideau métallique : {len(ouvertures)} ouverture(s) de façade "
+            "détectée(s) ci-dessous — cochez celle(s) du rideau, ou saisissez "
+            "les dimensions à la main. Surfaces À VALIDER.")
+    else:
+        alertes.append(
+            "Rideau métallique : aucune ouverture de façade détectée "
+            "automatiquement. Saisissez les dimensions à la main (L × H).")
 
     alertes.append(
         "PDF multi-pages : surface utile mesurée sur le plan le plus propre de "
@@ -137,19 +198,20 @@ def analyser_pdf_plan(chemin: str, echelle: int | None = None) -> RapportAnalyse
         alertes.insert(0, f"Hauteur sous plafond lue sur le plan : {hsp} m.")
 
     return _rapport(chemin, pieces, lignes, hsp or 2.70, alertes,
-                    hsp_detectee=bool(hsp))
+                    hsp_detectee=bool(hsp), ouvertures=ouvertures)
 
 
 # ---------------------------------------------------------------- helpers
 _MM = 25.4 / 72.0  # mm papier par point
 
 
-def _rapport(chemin, pieces, lignes, hsp, alertes, hsp_detectee=False):
+def _rapport(chemin, pieces, lignes, hsp, alertes, hsp_detectee=False,
+             ouvertures=None):
     return RapportAnalyse(
         fichier=chemin, unite_dessin=Unite.INCONNU, facteur_vers_metre=0.0,
         nb_calques=0, calques=[], calques_detail=[], ouvrages=[],
         pieces=pieces, hsp_m=hsp, hsp_detectee=hsp_detectee, mapping_ia={},
-        metre=lignes, alertes=alertes)
+        metre=lignes, alertes=alertes, ouvertures_facade=ouvertures or [])
 
 
 def _echelle(page, vmin: int = 100) -> float | None:

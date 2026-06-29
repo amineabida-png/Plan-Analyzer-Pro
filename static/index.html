@@ -113,6 +113,7 @@
         <tbody id="rows"></tbody>
       </table>
       <div id="alerts"></div>
+      <div id="rideau"></div>
       <div class="row" style="margin-top:1rem">
         <button id="toggleLayers" class="ghost">⚙ Affiner la classification des calques (optionnel)</button>
       </div>
@@ -300,6 +301,7 @@
     let lastReport = null;
     function render(data) {
       lastReport = data;
+      rideauManuel = [];
       result.classList.remove('hidden');
       document.getElementById('aicard').classList.remove('hidden');
       // Tableau de classification des calques (construit mais MASQUÉ : optionnel)
@@ -344,6 +346,56 @@
         <td class="num">${l.quantite.toLocaleString('fr-FR',{minimumFractionDigits:2})}</td>
         <td>${l.unite}</td></tr>`).join('');
       alerts.innerHTML = (data.alertes || []).map(a => `<div class="alert">⚠ ${a}</div>`).join('');
+      renderRideau(data.ouvertures_facade || []);
+    }
+
+    // ---- Rideau métallique de devanture (copilote : option A) ----
+    let rideauManuel = [];  // entrées saisies à la main : {l,h,q}
+    function renderRideau(ouvertures) {
+      const box = document.getElementById('rideau');
+      if (!ouvertures.length && !rideauManuel.length) {
+        // Afficher quand même la saisie manuelle pour les PDF
+        if (!lastReport || (lastReport.facteur_vers_metre !== 0)) { box.innerHTML=''; return; }
+      }
+      const opts = ouvertures.map((o,i) =>
+        `<label style="display:block;margin:.3rem 0">
+          <input type="checkbox" class="rid-chk" data-s="${o.surface_m2}" data-l="${o.largeur_m}" data-h="${o.hauteur_m}">
+          Ouverture ${i+1} (page ${o.page}) : ${o.largeur_m} × ${o.hauteur_m} m = <b>${o.surface_m2} m²</b>
+        </label>`).join('');
+      const manu = rideauManuel.map((m,i) =>
+        `<div class="sub" style="margin:.2rem 0">• ${m.l} × ${m.h} m × ${m.q} = <b>${(m.l*m.h*m.q).toFixed(2)} m²</b>
+          <button data-i="${i}" class="rid-del ghost" style="padding:.1rem .5rem;margin-left:.5rem">retirer</button></div>`).join('');
+      box.innerHTML = `
+        <div style="border:1px solid var(--border);border-radius:10px;padding:1rem;margin-top:1rem">
+          <h3 style="font-size:1.05rem;margin-bottom:.2rem">Rideau métallique de devanture <span class="sub">(à valider)</span></h3>
+          <p class="sub" style="margin-bottom:.6rem">Cochez l'ouverture du rideau, ou saisissez les dimensions lues sur la façade.</p>
+          ${opts || '<p class="sub">Aucune ouverture détectée automatiquement.</p>'}
+          ${manu ? '<div style="margin:.5rem 0">'+manu+'</div>' : ''}
+          <div class="row" style="margin-top:.6rem;align-items:flex-end">
+            <label class="f" style="max-width:120px">Largeur (m)<input type="number" id="rid-l" step="0.01" min="0"></label>
+            <label class="f" style="max-width:120px">Hauteur (m)<input type="number" id="rid-h" step="0.01" min="0"></label>
+            <label class="f" style="max-width:90px">Nombre<input type="number" id="rid-q" step="1" min="1" value="1"></label>
+            <button id="rid-add" class="ghost">Ajouter</button>
+          </div>
+          <p style="margin-top:.8rem;font-size:1.1rem">Total rideau : <b id="rid-total">0,00</b> m²</p>
+        </div>`;
+      function maj() {
+        let t = 0;
+        document.querySelectorAll('.rid-chk').forEach(c => { if (c.checked) t += parseFloat(c.dataset.s); });
+        rideauManuel.forEach(m => t += m.l*m.h*m.q);
+        document.getElementById('rid-total').textContent = t.toLocaleString('fr-FR',{minimumFractionDigits:2});
+      }
+      document.querySelectorAll('.rid-chk').forEach(c => c.addEventListener('change', maj));
+      document.getElementById('rid-add').addEventListener('click', () => {
+        const l=parseFloat(document.getElementById('rid-l').value);
+        const h=parseFloat(document.getElementById('rid-h').value);
+        const q=parseInt(document.getElementById('rid-q').value)||1;
+        if (l>0 && h>0) { rideauManuel.push({l,h,q}); renderRideau(ouvertures); }
+      });
+      document.querySelectorAll('.rid-del').forEach(b => b.addEventListener('click', () => {
+        rideauManuel.splice(parseInt(b.dataset.i),1); renderRideau(ouvertures);
+      }));
+      maj();
     }
   </script>
 </body>
