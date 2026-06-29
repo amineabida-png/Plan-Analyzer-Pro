@@ -49,12 +49,26 @@ def analyser_fichier(chemin: str, hsp_m: float | None = None,
 def analyser_pdf(chemin: str, hsp_m: float | None = None,
                  mapping_manuel: dict | None = None,
                  echelle: int | None = None) -> RapportAnalyse:
-    """Analyse un PDF de plan (vectoriel ou scanné)."""
+    """Analyse un PDF de plan.
+    - PDF multi-pages (dossier d'exécution, locaux à niveaux) -> analyseur de
+      plan dédié : surface utile par niveau, calibrage par les cotes, OCR.
+    - PDF d'une seule page -> pipeline géométrique (pièces + surfaces).
+    """
+    import fitz
+    try:
+        with fitz.open(chemin) as d:
+            n_pages = d.page_count
+    except Exception:  # noqa: BLE001
+        n_pages = 1
+
+    if n_pages > 1:
+        from .pdf_plan import analyser_pdf_plan
+        return analyser_pdf_plan(chemin, echelle=echelle)
+
     from .pdf_reader import LecturePDF
     lecture = LecturePDF(chemin, echelle=echelle)
     rapport = _analyser_lecteur(lecture, hsp_m=hsp_m, utiliser_ia=False,
                                 mapping_manuel=mapping_manuel)
-    # Alertes spécifiques au PDF (fiabilité, échelle)
     for a in lecture.alertes:
         rapport.alertes.insert(0, a)
     return rapport
