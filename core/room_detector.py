@@ -45,6 +45,63 @@ def _segments_depuis_ouvrage(o: Ouvrage) -> list[LineString]:
     return segs
 
 
+def associer_noms(pieces: list[PieceDetectee], textes: list[dict],
+                  facteur_vers_metre: float) -> None:
+    """
+    Associe un nom à chaque pièce à partir de TOUS les textes du plan
+    (indépendamment du calque). Modifie les pièces sur place.
+
+    Pour chaque pièce sans nom, on cherche un texte « nom » (contenant des
+    lettres) dont la position tombe dans le contour de la pièce ; à défaut, le
+    plus proche du centre dans un rayon raisonnable. Robuste aux textes centrés.
+    """
+    import re as _re
+    from shapely.geometry import Polygon
+
+    # Candidats : textes courts contenant au moins une lettre (pas les cotes/nombres)
+    candidats = []
+    for t in textes:
+        txt = (t.get("texte") or "").strip()
+        if not txt or len(txt) > 30:
+            continue
+        if not _re.search(r"[A-Za-zÀ-ÿ]", txt):
+            continue
+        x, y = t["position"]
+        candidats.append((txt, x, y))
+    if not candidats:
+        return
+
+    k = facteur_vers_metre
+    for p in pieces:
+        if p.nom and p.nom != "Pièce sans nom":
+            continue
+        if len(p.contour) < 3:
+            continue
+        try:
+            poly = Polygon([(pt.x, pt.y) for pt in p.contour])
+        except Exception:  # noqa: BLE001
+            continue
+        # 1) texte strictement dans la pièce
+        trouve = None
+        for (txt, x, y) in candidats:
+            if poly.contains(Point(x, y)):
+                trouve = txt
+                break
+        # 2) sinon le plus proche du centre, dans un rayon lié à la taille
+        if trouve is None:
+            c = poly.centroid
+            rayon = (poly.area ** 0.5) * 0.6
+            best = None
+            for (txt, x, y) in candidats:
+                d = ((x - c.x) ** 2 + (y - c.y) ** 2) ** 0.5
+                if d <= rayon and (best is None or d < best[1]):
+                    best = (txt, d)
+            if best:
+                trouve = best[0]
+        if trouve:
+            p.nom = trouve
+
+
 class DetecteurPieces:
     """Reconstruit les pièces et calcule leurs surfaces."""
 
@@ -149,20 +206,25 @@ class DetecteurPieces:
         if not faces:
             return []
 
-        # Étiquettes de pièces = tous les textes courts (noms de pièces probables)
+        # Étiquettes candidates = textes courts contenant des lettres (noms de pièces).
+        # On écarte les nombres seuls, cotes et longs textes (cartouche).
+        import re as _re
         labels = []
         for t in textes:
             txt = (t.get("texte") or "").strip()
-            if txt and len(txt) <= 30:
-                x, y = t["position"]
-                labels.append((txt, x, y))
+            if not txt or len(txt) > 30:
+                continue
+            # Doit contenir au moins une lettre (un nom de pièce, pas une cote)
+            if not _re.search(r"[A-Za-zÀ-ÿ]", txt):
+                continue
+            x, y = t["position"]
+            labels.append((txt, x, y))
 
         pieces: list[PieceDetectee] = []
         for face in faces:
             surface = face.area * (self.k ** 2)
             if surface < self.surface_min or surface > self.surface_max:
                 continue
-            # Écarter les faces trop "filiformes" (rapport surface/périmètre faible)
             perimetre = face.length * self.k
             if perimetre <= 0:
                 continue
@@ -170,11 +232,23 @@ class DetecteurPieces:
             if compacite < 0.08:  # face très allongée = probablement pas une pièce
                 continue
 
+            # Nom : 1) un label strictement dans la pièce, 2) sinon le plus proche du centre
             nom = None
             for (lname, lx, ly) in labels:
                 if face.contains(Point(lx, ly)):
                     nom = lname
                     break
+            if nom is None and labels:
+                c = face.centroid
+                # rayon de recherche lié à la taille de la pièce
+                rayon = (face.area ** 0.5) * 0.6
+                meilleure = None
+                for (lname, lx, ly) in labels:
+                    d = ((lx - c.x) ** 2 + (ly - c.y) ** 2) ** 0.5
+                    if d <= rayon and (meilleure is None or d < meilleure[1]):
+                        meilleure = (lname, d)
+                if meilleure:
+                    nom = meilleure[0]
 
             pieces.append(PieceDetectee(
                 id=str(uuid.uuid4())[:8],

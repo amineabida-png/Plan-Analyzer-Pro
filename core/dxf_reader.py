@@ -237,14 +237,17 @@ class LectureDXF:
         return out
 
     def textes(self) -> list[dict]:
-        """Extrait les TEXT et MTEXT (noms de pièces, cartouche, cotes...)."""
+        """Extrait les TEXT et MTEXT (noms de pièces, cartouche, cotes...).
+        Gère l'alignement : un texte centré (cas fréquent des noms de pièces sous
+        AutoCAD) a son insert à (0,0) et sa vraie position dans align_point."""
         out = []
         for e in self.msp.query("TEXT"):
             try:
+                pos = self._position_texte(e)
                 out.append({
                     "calque": e.dxf.layer,
                     "texte": (e.dxf.text or "").strip(),
-                    "position": (e.dxf.insert.x, e.dxf.insert.y),
+                    "position": pos,
                 })
             except Exception:  # noqa: BLE001
                 continue
@@ -258,6 +261,25 @@ class LectureDXF:
             except Exception:  # noqa: BLE001
                 continue
         return out
+
+    @staticmethod
+    def _position_texte(e) -> tuple[float, float]:
+        """Position visuelle réelle d'un TEXT, en tenant compte de l'alignement."""
+        halign = e.dxf.get("halign", 0)
+        valign = e.dxf.get("valign", 0)
+        # Texte aligné (centré, droite, milieu…) -> la position est align_point.
+        if (halign != 0 or valign != 0) and e.dxf.hasattr("align_point"):
+            ap = e.dxf.align_point
+            # Si align_point est non nul, on l'utilise.
+            if ap.x != 0 or ap.y != 0:
+                return (ap.x, ap.y)
+        ins = e.dxf.insert
+        # Cas limite : insert à l'origine mais align_point renseigné.
+        if ins.x == 0 and ins.y == 0 and e.dxf.hasattr("align_point"):
+            ap = e.dxf.align_point
+            if ap.x != 0 or ap.y != 0:
+                return (ap.x, ap.y)
+        return (ins.x, ins.y)
 
     def detecter_hsp(self) -> float | None:
         """

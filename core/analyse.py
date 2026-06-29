@@ -103,6 +103,9 @@ def analyser_dxf(chemin: str, hsp_m: float | None = None,
     if not pieces:
         pieces = detecteur_pieces.detecter_auto(polylignes, lignes_geo, textes_geo)
         methode_pieces = "auto-géométrie"
+    # 4c. Associer les noms de pièces à partir de TOUS les textes (tous calques)
+    from .room_detector import associer_noms
+    associer_noms(pieces, textes_geo, lecture.facteur_vers_metre)
 
     # 5. Métré
     calc = CalculateurMetre(hsp_m=hsp_m)
