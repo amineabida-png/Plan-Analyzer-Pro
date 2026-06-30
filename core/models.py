@@ -90,3 +90,5 @@ class RapportAnalyse(BaseModel):
     alertes: list[str] = Field(default_factory=list)
     # Cotes réelles lues sur la façade (en mètres) pour composer le rideau (exact)
     cotes_facade: list[float] = Field(default_factory=list)
+    # Rideaux SUPECO détectés automatiquement (cadre jaune de la devanture) : à vérifier
+    rideaux_proposes: list[dict] = Field(default_factory=list)

@@ -52,6 +52,63 @@ def _cotes_facade(doc, cartouches: list[str]) -> list[float]:
     return sorted(round(v / 100.0, 2) for v in vals)
 
 
+def _rideaux_supeco(doc, cartouches: list[str]) -> list[dict]:
+    """Détecte automatiquement les rideaux de devanture SUPECO via le CADRE JAUNE.
+    Le jaune dessine le cadre (bandeau + poteaux) ; les rideaux sont les ouvertures
+    entre les poteaux. Renvoie des rideaux PROPOSÉS {largeur_m, hauteur_m,
+    surface_m2} à vérifier/ajuster par l'utilisateur."""
+    for i in range(doc.page_count):
+        c = cartouches[i].lower()
+        if "facade" not in c and "façade" not in c:
+            continue
+        page = doc[i]
+        f = _echelle(page, vmin=40)
+        if not f:
+            continue
+        # Rectangles remplis en jaune (R haut, G haut, B bas)
+        jr = []
+        for d in page.get_drawings():
+            fl = d.get("fill")
+            r = d.get("rect")
+            if fl and r and fl[0] > 0.7 and fl[1] > 0.6 and fl[2] < 0.5:
+                if (r.x1 - r.x0) > 1 and (r.y1 - r.y0) > 1:
+                    jr.append(r)
+        if len(jr) < 2:
+            continue
+        minx = min(r.x0 for r in jr); maxx = max(r.x1 for r in jr)
+        miny = min(r.y0 for r in jr); maxy = max(r.y1 for r in jr)
+        Htot = (maxy - miny) * f
+        # Bandeau = rectangle jaune le plus large (pleine largeur, en haut)
+        bandeau = max(jr, key=lambda r: r.x1 - r.x0)
+        h_band = (bandeau.y1 - bandeau.y0) * f
+        # Poteaux = rectangles jaunes 'hauts' (hors bandeau)
+        poteaux = sorted([r for r in jr if r is not bandeau
+                          and (r.y1 - r.y0) * f > 1.0], key=lambda r: r.x0)
+        # Ouvertures = espaces libres entre poteaux, dans l'emprise du bandeau
+        occ = [(r.x0, r.x1) for r in poteaux]
+        ouvertures = []
+        cur = minx
+        for (a, b) in occ:
+            if a - cur > 5:
+                ouvertures.append((cur, a))
+            cur = max(cur, b)
+        if maxx - cur > 5:
+            ouvertures.append((cur, maxx))
+        # Hauteur d'ouverture = devanture - bandeau - base (~0.20 m typique SUPECO)
+        h_ouv = round(Htot - h_band - 0.20, 2)
+        if h_ouv <= 0:
+            h_ouv = round(Htot - h_band, 2)
+        out = []
+        for (a, b) in ouvertures:
+            larg = round((b - a) * f, 2)
+            if larg >= 0.8:  # ignore les petits interstices
+                out.append({"largeur_m": larg, "hauteur_m": h_ouv,
+                            "surface_m2": round(larg * h_ouv, 2)})
+        if out:
+            return out
+    return []
+
+
 def analyser_pdf_plan(chemin: str, echelle: int | None = None) -> RapportAnalyse:
     import fitz
 
@@ -143,18 +200,23 @@ def analyser_pdf_plan(chemin: str, echelle: int | None = None) -> RapportAnalyse
             f"Surface annoncée sur le plan : {surface_annoncee} m² | "
             f"calculée : {round(s_princ,1)} m² (écart {ecart:.0f} %).")
 
-    # Rideau métallique : on lit les VRAIES cotes de la façade ; l'utilisateur
-    # compose largeur × hauteur (aucune détection hasardeuse).
+    # Rideau métallique : détection AUTO via le cadre jaune SUPECO + cotes réelles
     cotes = _cotes_facade(doc, cartouches)
-    if cotes:
+    rideaux = _rideaux_supeco(doc, cartouches)
+    if rideaux:
+        tot = sum(r["surface_m2"] for r in rideaux)
         alertes.append(
-            "Rideau métallique : composez ses dimensions ci-dessous à partir des "
-            "cotes réelles lues sur la façade (largeur × hauteur), ou saisissez-les "
-            "à la main. Le calcul est exact d'après vos valeurs.")
+            f"Rideau métallique : {len(rideaux)} rideau(x) détecté(s) "
+            f"automatiquement (devanture jaune), total ≈ {round(tot,2)} m². "
+            "Pré-remplis ci-dessous — vérifiez/ajustez si besoin.")
+    elif cotes:
+        alertes.append(
+            "Rideau métallique : devanture jaune non détectée. Composez les "
+            "dimensions à partir des cotes réelles de la façade ci-dessous.")
     else:
         alertes.append(
-            "Rideau métallique : aucune cote de façade trouvée. Saisissez "
-            "directement la largeur et la hauteur du rideau (lues sur le plan).")
+            "Rideau métallique : ni devanture jaune ni cotes de façade trouvées. "
+            "Saisissez la largeur et la hauteur à la main.")
 
     alertes.append(
         "PDF multi-pages : surface utile mesurée sur le plan le plus propre de "
@@ -163,7 +225,7 @@ def analyser_pdf_plan(chemin: str, echelle: int | None = None) -> RapportAnalyse
         alertes.insert(0, f"Hauteur sous plafond lue sur le plan : {hsp} m.")
 
     return _rapport(chemin, pieces, lignes, hsp or 2.70, alertes,
-                    hsp_detectee=bool(hsp), cotes=cotes)
+                    hsp_detectee=bool(hsp), cotes=cotes, rideaux=rideaux)
 
 
 # ---------------------------------------------------------------- helpers
@@ -171,12 +233,13 @@ _MM = 25.4 / 72.0  # mm papier par point
 
 
 def _rapport(chemin, pieces, lignes, hsp, alertes, hsp_detectee=False,
-             cotes=None):
+             cotes=None, rideaux=None):
     return RapportAnalyse(
         fichier=chemin, unite_dessin=Unite.INCONNU, facteur_vers_metre=0.0,
         nb_calques=0, calques=[], calques_detail=[], ouvrages=[],
         pieces=pieces, hsp_m=hsp, hsp_detectee=hsp_detectee, mapping_ia={},
-        metre=lignes, alertes=alertes, cotes_facade=cotes or [])
+        metre=lignes, alertes=alertes, cotes_facade=cotes or [],
+        rideaux_proposes=rideaux or [])
 
 
 def _echelle(page, vmin: int = 100) -> float | None:

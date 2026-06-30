@@ -311,6 +311,10 @@
     function render(data) {
       lastReport = data;
       rideauListe = []; ridL = 0; ridH = 0; ridActive = 'l';
+      // SUPECO : pré-remplir les rideaux détectés automatiquement (devanture jaune)
+      if (clientType === 'supeco' && (data.rideaux_proposes||[]).length) {
+        rideauListe = data.rideaux_proposes.map(r => ({l:r.largeur_m, h:r.hauteur_m, q:1, auto:true}));
+      }
       result.classList.remove('hidden');
       document.getElementById('aicard').classList.remove('hidden');
       // Tableau de classification des calques (construit mais MASQUÉ : optionnel)
@@ -371,6 +375,7 @@
         `<button class="rid-cote ghost" data-v="${c}" style="padding:.2rem .6rem;margin:.15rem">+ ${c.toLocaleString('fr-FR')}</button>`).join('');
       const liste = rideauListe.map((m,i) =>
         `<div class="sub" style="margin:.25rem 0">• ${m.l} × ${m.h} m × ${m.q} = <b>${(m.l*m.h*m.q).toFixed(2)} m²</b>
+          ${m.auto ? '<span style="color:var(--accent)"> (auto-détecté)</span>' : ''}
           <button data-i="${i}" class="rid-del ghost" style="padding:.1rem .5rem;margin-left:.5rem">retirer</button></div>`).join('');
       const total = rideauListe.reduce((s,m)=>s+m.l*m.h*m.q, 0);
       box.innerHTML = `
