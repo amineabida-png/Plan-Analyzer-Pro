@@ -31,7 +31,7 @@ from .models import (RapportAnalyse, PieceDetectee, MetreLigne, TypeOuvrage,
 # Bornes de surface plausibles pour une région "local" (m²)
 _SURF_MIN = 5.0
 _SURF_MAX = 5000.0
-_ZOOM = 3.0  # rastérisation : 216 dpi
+_ZOOM = 2.0  # rastérisation : 144 dpi (léger : évite les timeouts serveur)
 
 
 def _cotes_facade(doc, cartouches: list[str]) -> list[float]:
@@ -39,7 +39,7 @@ def _cotes_facade(doc, cartouches: list[str]) -> list[float]:
     renvoie en mètres, triées. Ce sont des valeurs exactes (pas une estimation) :
     l'utilisateur s'en sert pour composer la largeur et la hauteur du rideau."""
     vals = set()
-    for i in range(doc.page_count):
+    for i in range(min(doc.page_count, len(cartouches))):
         if not _est_facade(doc[i], cartouches[i]):
             continue
         for w in doc[i].get_text("words"):
@@ -100,7 +100,7 @@ def _est_facade(page, cartouche: str) -> bool:
 
 
 def _rideaux_supeco_impl(doc, cartouches):
-    for i in range(doc.page_count):
+    for i in range(min(doc.page_count, len(cartouches))):
         page = doc[i]
         if not _est_facade(page, cartouches[i]):
             continue
@@ -157,8 +157,12 @@ def _rideaux_supeco_impl(doc, cartouches):
                 ouv[0] += mur_g / f
             if abs(ouv[1] - maxx) < tol and mur_d:    # touche le bord droit
                 ouv[1] -= mur_d / f
-        # Hauteur d'ouverture = devanture - bandeau - base (~0.20 m typique)
-        h_ouv = round(Htot - h_band - 0.20, 2)
+        # Hauteur d'ouverture : les baies sont SOUS le bandeau Supeco. On mesure
+        # du bas de la devanture jusqu'au bas du bandeau (exclut le drapeau au-
+        # dessus sur les façades hautes), moins la base (~0.20 m).
+        h_ouv = round((maxy - bandeau.y1) * f - 0.20, 2)
+        if h_ouv <= 0.5:  # repli : bandeau tout en bas ou introuvable
+            h_ouv = round(Htot - h_band - 0.20, 2)
         if h_ouv <= 0.5:
             h_ouv = round(Htot - h_band, 2)
         out = []
@@ -176,7 +180,7 @@ def _rideaux_supeco_impl(doc, cartouches):
 def _rideaux_bleu(doc, cartouches):
     """Repli : détecte les baies vitrées bleues de la devanture (quand pas de
     cadre jaune). Approximatif — à vérifier/ajuster par l'utilisateur."""
-    for i in range(doc.page_count):
+    for i in range(min(doc.page_count, len(cartouches))):
         page = doc[i]
         if not _est_facade(page, cartouches[i]):
             continue
@@ -229,7 +233,7 @@ def _projet(doc) -> str | None:
     except Exception:  # noqa: BLE001
         return None
     cands = []
-    for i in range(doc.page_count):
+    for i in range(min(doc.page_count, 8)):  # projet lisible sur les 1res pages
         try:
             page = doc[i]
             r = page.rect
@@ -295,9 +299,12 @@ def _analyser_pdf_plan_impl(chemin: str, echelle: int | None = None) -> RapportA
                         ["PDF illisible : fichier corrompu ou protégé."])
     hsp = _lire_hsp(doc)
 
-    # 1) Lire d'abord la surface annoncée et les cartouches de toutes les pages
+    # 1) Lire d'abord la surface annoncée et les cartouches de toutes les pages.
+    #    Plafond de sécurité : les niveaux SUPECO sont dans les premières pages ;
+    #    borner le travail évite tout dépassement de temps/mémoire serveur.
+    n_pages = min(doc.page_count, 40)
     cartouches = []
-    for i in range(doc.page_count):
+    for i in range(n_pages):
         try:
             cartouches.append(_ocr_cartouche(doc[i]))
         except Exception:  # noqa: BLE001
@@ -309,14 +316,17 @@ def _analyser_pdf_plan_impl(chemin: str, echelle: int | None = None) -> RapportA
     # 2) Analyser chaque page : niveau, propreté (existant), échelle, régions.
     #    Une page corrompue est ignorée sans interrompre l'analyse.
     pages_info = []
-    for i in range(doc.page_count):
+    for i in range(n_pages):
         try:
             page = doc[i]
             carto = cartouches[i]
             niveau = _niveau_depuis_titre(carto)
             existant = ("existant" in carto.lower())
             facteur = (echelle and _MM * echelle / 1000.0) or _echelle(page)
-            regions = _surface_principale(page, facteur) if facteur else []
+            # Rasterisation (coûteuse) UNIQUEMENT sur les pages de niveau :
+            # inutile de mesurer façades, arcades, plans techniques.
+            regions = (_surface_principale(page, facteur)
+                       if (facteur and niveau) else [])
             surf = _choisir_surface(regions, surface_annoncee)
             pages_info.append({
                 "page": i + 1, "niveau": niveau, "existant": existant,
