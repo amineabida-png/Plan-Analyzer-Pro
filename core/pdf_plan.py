@@ -52,11 +52,42 @@ def _cotes_facade(doc, cartouches: list[str]) -> list[float]:
     return sorted(round(v / 100.0, 2) for v in vals)
 
 
+def _cotes_bas(page, vmin=10):
+    """Chaîne de cotes horizontales du bas de la façade (valeur en cm, x), triée."""
+    cotes = []
+    for w in page.get_text("words"):
+        m = re.fullmatch(r"(\d{2,4})", w[4].strip())
+        if m:
+            v = int(m.group(1))
+            if vmin <= v <= 2000:
+                cotes.append((v, (w[0] + w[2]) / 2, (w[1] + w[3]) / 2))
+    if not cotes:
+        return []
+    ymax = max(c[2] for c in cotes)
+    bas = [c for c in cotes if c[2] > ymax - 18]
+    bas.sort(key=lambda c: c[1])
+    return bas  # [(valeur_cm, x, y), ...] gauche -> droite
+
+
 def _rideaux_supeco(doc, cartouches: list[str]) -> list[dict]:
     """Détecte automatiquement les rideaux de devanture SUPECO via le CADRE JAUNE.
-    Le jaune dessine le cadre (bandeau + poteaux) ; les rideaux sont les ouvertures
-    entre les poteaux. Renvoie des rideaux PROPOSÉS {largeur_m, hauteur_m,
-    surface_m2} à vérifier/ajuster par l'utilisateur."""
+    Robuste : tolérance de teinte, choix de la bonne page façade, correction des
+    murs latéraux par la chaîne de cotes du bas. Ne lève jamais d'exception."""
+    try:
+        return _rideaux_supeco_impl(doc, cartouches)
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _est_jaune(fl) -> bool:
+    """Jaune SUPECO, avec tolérance de teinte (golden yellow)."""
+    if not fl or len(fl) < 3:
+        return False
+    r, g, b = fl[0], fl[1], fl[2]
+    return r > 0.7 and g > 0.55 and b < 0.55 and (r - b) > 0.35
+
+
+def _rideaux_supeco_impl(doc, cartouches):
     for i in range(doc.page_count):
         c = cartouches[i].lower()
         if "facade" not in c and "façade" not in c:
@@ -65,38 +96,59 @@ def _rideaux_supeco(doc, cartouches: list[str]) -> list[dict]:
         f = _echelle(page, vmin=40)
         if not f:
             continue
-        # Rectangles remplis en jaune (R haut, G haut, B bas)
+        # Rectangles remplis en jaune (cadre de la devanture)
         jr = []
         for d in page.get_drawings():
-            fl = d.get("fill")
             r = d.get("rect")
-            if fl and r and fl[0] > 0.7 and fl[1] > 0.6 and fl[2] < 0.5:
-                if (r.x1 - r.x0) > 1 and (r.y1 - r.y0) > 1:
-                    jr.append(r)
+            if _est_jaune(d.get("fill")) and r and (r.x1 - r.x0) > 1 and (r.y1 - r.y0) > 1:
+                jr.append(r)
         if len(jr) < 2:
             continue
         minx = min(r.x0 for r in jr); maxx = max(r.x1 for r in jr)
         miny = min(r.y0 for r in jr); maxy = max(r.y1 for r in jr)
+        Wtot = (maxx - minx) * f
         Htot = (maxy - miny) * f
+        # Garde-fou : une devanture plausible (1–30 m de large, 1–6 m de haut)
+        if not (1.0 <= Wtot <= 30.0 and 1.0 <= Htot <= 6.0):
+            continue
         # Bandeau = rectangle jaune le plus large (pleine largeur, en haut)
         bandeau = max(jr, key=lambda r: r.x1 - r.x0)
         h_band = (bandeau.y1 - bandeau.y0) * f
         # Poteaux = rectangles jaunes 'hauts' (hors bandeau)
         poteaux = sorted([r for r in jr if r is not bandeau
                           and (r.y1 - r.y0) * f > 1.0], key=lambda r: r.x0)
-        # Ouvertures = espaces libres entre poteaux, dans l'emprise du bandeau
+        # Ouvertures = espaces libres entre poteaux, dans l'emprise
         occ = [(r.x0, r.x1) for r in poteaux]
         ouvertures = []
         cur = minx
         for (a, b) in occ:
             if a - cur > 5:
-                ouvertures.append((cur, a))
+                ouvertures.append([cur, a])
             cur = max(cur, b)
         if maxx - cur > 5:
-            ouvertures.append((cur, maxx))
-        # Hauteur d'ouverture = devanture - bandeau - base (~0.20 m typique SUPECO)
+            ouvertures.append([cur, maxx])
+        if not ouvertures:
+            continue
+        # Correction des murs latéraux par la chaîne de cotes du bas :
+        # la cote la plus à gauche / à droite, si petite (< 0.7 m), est un mur.
+        bas = _cotes_bas(page)
+        mur_g = mur_d = 0.0
+        if bas:
+            vg = bas[0][0] / 100.0
+            vd = bas[-1][0] / 100.0
+            if vg < 0.7:
+                mur_g = vg
+            if vd < 0.7:
+                mur_d = vd
+        tol = 8  # points
+        for ouv in ouvertures:
+            if abs(ouv[0] - minx) < tol and mur_g:   # touche le bord gauche
+                ouv[0] += mur_g / f
+            if abs(ouv[1] - maxx) < tol and mur_d:    # touche le bord droit
+                ouv[1] -= mur_d / f
+        # Hauteur d'ouverture = devanture - bandeau - base (~0.20 m typique)
         h_ouv = round(Htot - h_band - 0.20, 2)
-        if h_ouv <= 0:
+        if h_ouv <= 0.5:
             h_ouv = round(Htot - h_band, 2)
         out = []
         for (a, b) in ouvertures:
@@ -112,29 +164,42 @@ def _rideaux_supeco(doc, cartouches: list[str]) -> list[dict]:
 def analyser_pdf_plan(chemin: str, echelle: int | None = None) -> RapportAnalyse:
     import fitz
 
-    doc = fitz.open(chemin)
+    try:
+        doc = fitz.open(chemin)
+    except Exception:  # noqa: BLE001
+        return _rapport(chemin, [], [], 2.70,
+                        ["PDF illisible : fichier corrompu ou protégé."])
     hsp = _lire_hsp(doc)
 
     # 1) Lire d'abord la surface annoncée et les cartouches de toutes les pages
-    cartouches = [_ocr_cartouche(doc[i]) for i in range(doc.page_count)]
+    cartouches = []
+    for i in range(doc.page_count):
+        try:
+            cartouches.append(_ocr_cartouche(doc[i]))
+        except Exception:  # noqa: BLE001
+            cartouches.append("")
     surface_annoncee = None
     for c in cartouches:
         surface_annoncee = surface_annoncee or _surface_annoncee(c)
 
-    # 2) Analyser chaque page : niveau, propreté (existant), échelle, régions
+    # 2) Analyser chaque page : niveau, propreté (existant), échelle, régions.
+    #    Une page corrompue est ignorée sans interrompre l'analyse.
     pages_info = []
     for i in range(doc.page_count):
-        page = doc[i]
-        carto = cartouches[i]
-        niveau = _niveau_depuis_titre(carto)
-        existant = ("existant" in carto.lower())
-        facteur = (echelle and _MM * echelle / 1000.0) or _echelle(page)
-        regions = _surface_principale(page, facteur) if facteur else []
-        surf = _choisir_surface(regions, surface_annoncee)
-        pages_info.append({
-            "page": i + 1, "niveau": niveau, "existant": existant,
-            "facteur": facteur, "surface": surf,
-        })
+        try:
+            page = doc[i]
+            carto = cartouches[i]
+            niveau = _niveau_depuis_titre(carto)
+            existant = ("existant" in carto.lower())
+            facteur = (echelle and _MM * echelle / 1000.0) or _echelle(page)
+            regions = _surface_principale(page, facteur) if facteur else []
+            surf = _choisir_surface(regions, surface_annoncee)
+            pages_info.append({
+                "page": i + 1, "niveau": niveau, "existant": existant,
+                "facteur": facteur, "surface": surf,
+            })
+        except Exception:  # noqa: BLE001
+            continue
 
     # 3) Ne garder que les pages de PLAN avec un niveau reconnu et une surface.
     #    Les pages sans niveau (cartouche, façade, photos) sont ignorées ici.
@@ -196,9 +261,11 @@ def analyser_pdf_plan(chemin: str, echelle: int | None = None) -> RapportAnalyse
     if surface_annoncee:
         s_princ = max(info["surface"] for info in niveaux.values())
         ecart = abs(s_princ - surface_annoncee) / surface_annoncee * 100
-        alertes.append(
-            f"Surface annoncée sur le plan : {surface_annoncee} m² | "
-            f"calculée : {round(s_princ,1)} m² (écart {ecart:.0f} %).")
+        msg = (f"Surface annoncée sur le plan : {surface_annoncee} m² | "
+               f"calculée : {round(s_princ,1)} m² (écart {ecart:.0f} %).")
+        if ecart > 15:
+            msg += " ⚠ Écart important : vérifiez l'échelle et le plan retenu."
+        alertes.append(msg)
 
     # Rideau métallique : détection AUTO via le cadre jaune SUPECO + cotes réelles
     cotes = _cotes_facade(doc, cartouches)
@@ -243,44 +310,61 @@ def _rapport(chemin, pieces, lignes, hsp, alertes, hsp_detectee=False,
 
 
 def _echelle(page, vmin: int = 100) -> float | None:
-    """Facteur m/point calibré sur les grandes cotes (≥ vmin cm)."""
-    cotes = []
-    for w in page.get_text("words"):
-        m = re.fullmatch(r"(\d{2,4})", w[4].strip())
-        if m:
-            v = int(m.group(1))
-            if vmin <= v <= 3000:
-                cotes.append((v, (w[0] + w[2]) / 2, (w[1] + w[3]) / 2))
-    segs = []
-    for d in page.get_drawings():
-        for it in d.get("items", []):
-            if it[0] == "l":
-                p1, p2 = it[1], it[2]
-                L = math.hypot(p2.x - p1.x, p2.y - p1.y)
-                if L > 15:
-                    axial = abs(p2.y - p1.y) < 2 or abs(p2.x - p1.x) < 2
-                    segs.append((L, (p1.x + p2.x) / 2, (p1.y + p2.y) / 2, axial))
-    cands = []
-    for (v, cx, cy) in cotes:
-        best = None
-        for (L, mx, my, axial) in segs:
-            if not axial:
-                continue
-            dd = math.hypot(mx - cx, my - cy)
-            if dd < 35 and (best is None or dd < best[1]):
-                best = (v / L, dd)
-        if best:
-            cands.append(best[0])
-    if len(cands) < 3:
+    """Facteur m/point calibré sur les grandes cotes (≥ vmin cm).
+    Robuste : appariement cote<->segment, puis rejet des aberrations (on ne
+    garde que les candidats proches de la médiane). Ne lève jamais d'exception."""
+    try:
+        cotes = []
+        for w in page.get_text("words"):
+            m = re.fullmatch(r"(\d{2,4})", w[4].strip())
+            if m:
+                v = int(m.group(1))
+                if vmin <= v <= 3000:
+                    cotes.append((v, (w[0] + w[2]) / 2, (w[1] + w[3]) / 2))
+        segs = []
+        for d in page.get_drawings():
+            for it in d.get("items", []):
+                if it[0] == "l":
+                    p1, p2 = it[1], it[2]
+                    L = math.hypot(p2.x - p1.x, p2.y - p1.y)
+                    if L > 15:
+                        axial = abs(p2.y - p1.y) < 2 or abs(p2.x - p1.x) < 2
+                        segs.append((L, (p1.x + p2.x) / 2, (p1.y + p2.y) / 2, axial))
+        cands = []
+        for (v, cx, cy) in cotes:
+            best = None
+            for (L, mx, my, axial) in segs:
+                if not axial:
+                    continue
+                dd = math.hypot(mx - cx, my - cy)
+                if dd < 35 and (best is None or dd < best[1]):
+                    best = (v / L, dd)
+            if best:
+                cands.append(best[0])
+        if len(cands) < 3:
+            return None
+        med = statistics.median(cands)
+        # Rejet des aberrations : garder les candidats à ±30 % de la médiane
+        proches = [c for c in cands if 0.7 * med <= c <= 1.3 * med]
+        if len(proches) >= 3:
+            med = statistics.median(proches)
+        return med / 100.0  # cm/point -> m/point
+    except Exception:  # noqa: BLE001
         return None
-    return statistics.median(cands) / 100.0  # cm/point -> m/point
 
 
 def _surface_principale(page, facteur: float):
     """Régions fermées plausibles (m²) avec leur taux de remplissage du bbox.
     Renvoie une liste [(aire_m2, taux_remplissage)] triée par aire décroissante.
     Le taux de remplissage distingue une pièce pleine (~0.6) d'un anneau/douve
-    autour du bâtiment (faible)."""
+    autour du bâtiment (faible). Ne lève jamais d'exception."""
+    try:
+        return _surface_principale_impl(page, facteur)
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _surface_principale_impl(page, facteur: float):
     import fitz
     import numpy as np
     import cv2
