@@ -366,9 +366,16 @@ def _analyser_pdf_plan_impl(chemin: str, echelle: int | None = None) -> RapportA
                        "est fourni ci-dessous s'il est disponible.")
 
     total = 0.0
+    # Niveau principal non mesuré = celui qui reçoit la surface annoncée (RDC
+    # de préférence, sinon le premier niveau présent non mesuré).
+    non_mesures0 = [n for n in tous_niveaux if n not in niveaux]
+    principal = None
+    if surface_annoncee and non_mesures0:
+        principal = "RDC" if "RDC" in non_mesures0 else non_mesures0[0]
+
     for niv in tous_niveaux:
         info = niveaux.get(niv)
-        if info:  # niveau MESURÉ
+        if info:  # niveau MESURÉ (échelle calibrée sur des cotes)
             s = round(info["surface"], 2)
             total += s
             pieces.append(PieceDetectee(
@@ -379,7 +386,18 @@ def _analyser_pdf_plan_impl(chemin: str, echelle: int | None = None) -> RapportA
                 poste=f"Surface utile — {niv}", type_ouvrage=TypeOuvrage.DALLE,
                 quantite=s, unite="m2",
                 detail=f"page {info['page']}, échelle calibrée sur les cotes"))
-        else:  # niveau PRÉSENT mais non mesurable (pas de cotes exploitables)
+        elif niv == principal:  # non mesuré -> surface ANNONCÉE sur le plan
+            s = round(float(surface_annoncee), 2)
+            total += s
+            pieces.append(PieceDetectee(
+                id=str(uuid.uuid4())[:8], nom=f"{niv} — surface utile",
+                surface_m2=s, perimetre_m=0.0, surface_plafond_m2=s,
+                surface_carrelage_m2=s, surface_peinture_murs_m2=0.0, contour=[]))
+            lignes.append(MetreLigne(
+                poste=f"Surface utile — {niv}", type_ouvrage=TypeOuvrage.DALLE,
+                quantite=s, unite="m2",
+                detail="surface annoncée sur le plan (pas de cotes à mesurer)"))
+        else:  # niveau présent, ni mesuré ni principal
             pieces.append(PieceDetectee(
                 id=str(uuid.uuid4())[:8], nom=f"{niv} — surface utile",
                 surface_m2=0.0, perimetre_m=0.0, surface_plafond_m2=0.0,
@@ -395,11 +413,16 @@ def _analyser_pdf_plan_impl(chemin: str, echelle: int | None = None) -> RapportA
     # Niveaux présents / manquants
     if tous_niveaux:
         alertes.append("Niveaux présents : " + ", ".join(tous_niveaux) + ".")
-        non_mesures = [n for n in tous_niveaux if n not in niveaux]
-        if non_mesures:
-            alertes.append("Surface non mesurée pour : " + ", ".join(non_mesures)
-                           + " (plan sans cotes exploitables). "
-                           "Voir la surface annoncée ci-dessous.")
+        if principal and surface_annoncee:
+            alertes.append(
+                f"{principal} : surface annoncée du plan retenue "
+                f"({surface_annoncee} m²) — pas de cotes à mesurer sur ce plan.")
+        restants = [n for n in tous_niveaux
+                    if n not in niveaux and n != principal]
+        if restants:
+            alertes.append(
+                "Surface non déterminée pour : " + ", ".join(restants)
+                + " (aucune cote ni surface écrite sur le plan pour ce niveau).")
         for attendu in ("mezzanine", "sous-sol"):
             if not any(attendu in n.lower() for n in tous_niveaux):
                 alertes.append(f"Aucun plan « {attendu} » trouvé dans le PDF.")
