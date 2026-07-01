@@ -161,6 +161,30 @@ def _rideaux_supeco_impl(doc, cartouches):
     return []
 
 
+def _projet(cartouches: list[str]) -> str | None:
+    """Nom du projet/magasin lu sur le cartouche (valeur la plus fréquente)."""
+    from collections import Counter
+    noms = []
+    for c in cartouches:
+        m = re.search(r"projet\s*:?\s*([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9\-]{2,})", c, re.I)
+        if m:
+            nom = m.group(1).upper()
+            if nom not in ("RDC", "MEZZANINE", "SOUS", "ETAGE", "SUPECO"):
+                noms.append(nom)
+    return Counter(noms).most_common(1)[0][0] if noms else None
+
+
+def _gondoles(cartouches: list[str]) -> int | None:
+    """Nombre de gondoles lu sur le cartouche (valeur la plus fréquente)."""
+    from collections import Counter
+    vals = []
+    for c in cartouches:
+        m = re.search(r"gondoles?\s*:?\s*(\d{1,4})", c, re.I)
+        if m:
+            vals.append(int(m.group(1)))
+    return Counter(vals).most_common(1)[0][0] if vals else None
+
+
 def analyser_pdf_plan(chemin: str, echelle: int | None = None) -> RapportAnalyse:
     import fitz
 
@@ -292,7 +316,8 @@ def analyser_pdf_plan(chemin: str, echelle: int | None = None) -> RapportAnalyse
         alertes.insert(0, f"Hauteur sous plafond lue sur le plan : {hsp} m.")
 
     return _rapport(chemin, pieces, lignes, hsp or 2.70, alertes,
-                    hsp_detectee=bool(hsp), cotes=cotes, rideaux=rideaux)
+                    hsp_detectee=bool(hsp), cotes=cotes, rideaux=rideaux,
+                    projet=_projet(cartouches), gondoles=_gondoles(cartouches))
 
 
 # ---------------------------------------------------------------- helpers
@@ -300,13 +325,13 @@ _MM = 25.4 / 72.0  # mm papier par point
 
 
 def _rapport(chemin, pieces, lignes, hsp, alertes, hsp_detectee=False,
-             cotes=None, rideaux=None):
+             cotes=None, rideaux=None, projet=None, gondoles=None):
     return RapportAnalyse(
         fichier=chemin, unite_dessin=Unite.INCONNU, facteur_vers_metre=0.0,
         nb_calques=0, calques=[], calques_detail=[], ouvrages=[],
         pieces=pieces, hsp_m=hsp, hsp_detectee=hsp_detectee, mapping_ia={},
         metre=lignes, alertes=alertes, cotes_facade=cotes or [],
-        rideaux_proposes=rideaux or [])
+        rideaux_proposes=rideaux or [], projet=projet, nb_gondoles=gondoles)
 
 
 def _echelle(page, vmin: int = 100) -> float | None:

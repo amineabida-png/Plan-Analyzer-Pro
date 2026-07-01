@@ -441,9 +441,12 @@
       const ligneNiv = (label, v) => `<tr><td>${label}</td><td class="num">${v!=null ? fmt(v)+' m²' : '<span class="sub">— absent</span>'}</td></tr>`;
       const detailRid = rideauListe.map((m,i) =>
         `<div class="sub">Rideau ${i+1} : ${m.l} × ${m.h} m${m.q>1?' × '+m.q:''} = ${fmt(m.l*m.h*m.q)} m²</div>`).join('');
+      const projet = lastReport.projet;
+      const gondoles = lastReport.nb_gondoles;
       box.innerHTML = `
         <div style="border:2px solid var(--accent);border-radius:12px;padding:1.2rem;margin-top:1.4rem;background:rgba(56,160,255,.05)">
-          <h2 style="font-size:1.25rem;margin-bottom:.8rem">📋 Récapitulatif SUPECO</h2>
+          <h2 style="font-size:1.25rem;margin-bottom:.2rem">📋 Récapitulatif SUPECO${projet?' — '+projet:''}</h2>
+          ${gondoles!=null?`<p class="sub" style="margin-bottom:.6rem">Nombre de gondoles : <b>${gondoles}</b></p>`:''}
           <h3 style="font-size:1rem;margin:.4rem 0">Surfaces par niveau</h3>
           <table style="margin-bottom:.6rem"><tbody>
             ${ligneNiv('RDC', rdc)}
@@ -456,7 +459,63 @@
           <h3 style="font-size:1rem;margin:.8rem 0 .3rem">Rideaux métalliques de devanture</h3>
           ${nbRid ? detailRid : '<div class="sub">Aucun rideau composé. Utilisez la section ci-dessus.</div>'}
           <p style="margin-top:.4rem;font-size:1.1rem">Nombre de rideaux : <b>${nbRid}</b> — Total : <b>${fmt(totalRid)} m²</b></p>
+          <button id="recap-print" style="margin-top:1rem">🖨 Imprimer le récapitulatif</button>
         </div>`;
+      const bp = document.getElementById('recap-print');
+      if (bp) bp.addEventListener('click', printRecap);
+    }
+
+    // ---- Impression du récapitulatif SUPECO seul ----
+    function printRecap() {
+      if (!lastReport) return;
+      const pieces = lastReport.pieces || [];
+      const surfNiv = (prefixes) => {
+        const p = pieces.find(p => prefixes.some(pr => p.nom.toUpperCase().startsWith(pr)));
+        return p ? p.surface_m2 : null;
+      };
+      const rdc = surfNiv(['RDC','REZ']), mez = surfNiv(['MEZZANINE']), ss = surfNiv(['SOUS']);
+      const totalSurf = pieces.reduce((s,p)=>s+p.surface_m2,0);
+      const nbRid = rideauListe.length;
+      const totalRid = rideauListe.reduce((s,m)=>s+m.l*m.h*m.q,0);
+      const hsp = lastReport.hsp_m;
+      const projet = lastReport.projet;
+      const gondoles = lastReport.nb_gondoles;
+      const fmt = (v)=>v.toLocaleString('fr-FR',{minimumFractionDigits:2});
+      const date = new Date().toLocaleDateString('fr-FR');
+      const lNiv = (label,v)=>`<tr><td>${label}</td><td class="r">${v!=null?fmt(v)+' m²':'— absent'}</td></tr>`;
+      const ridRows = rideauListe.map((m,i)=>
+        `<tr><td>Rideau ${i+1}</td><td class="r">${m.l} × ${m.h} m${m.q>1?' × '+m.q:''} = ${fmt(m.l*m.h*m.q)} m²</td></tr>`).join('');
+      const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
+        <title>Récapitulatif SUPECO${projet?' — '+projet:''}</title>
+        <style>
+          body{font-family:Arial,Helvetica,sans-serif;color:#111;padding:32px;max-width:760px;margin:auto}
+          h1{font-size:22px;border-bottom:3px solid #f5c000;padding-bottom:8px;margin-bottom:4px}
+          h2{font-size:15px;margin:22px 0 4px}
+          .meta{color:#555;font-size:13px;margin:0 0 4px}
+          table{width:100%;border-collapse:collapse}
+          td{padding:7px 4px;border-bottom:1px solid #ddd}
+          td.r{text-align:right}
+          .tot td{font-weight:bold;border-top:2px solid #333;border-bottom:none}
+          @media print{button{display:none}}
+        </style></head><body>
+        <h1>Récapitulatif SUPECO${projet?' — '+projet:''}</h1>
+        <p class="meta">Date : ${date}${hsp?' &nbsp;|&nbsp; HSP : '+fmt(hsp)+' m':''}${gondoles!=null?' &nbsp;|&nbsp; Gondoles : '+gondoles:''}</p>
+        <h2>Surfaces par niveau</h2>
+        <table>${lNiv('RDC',rdc)}${lNiv('Mezzanine',mez)}${lNiv('Sous-sol',ss)}
+          <tr class="tot"><td>Surface utile totale</td><td class="r">${fmt(totalSurf)} m²</td></tr></table>
+        <table style="margin-top:14px">
+          <tr><td>Mezzanine</td><td class="r">${mez!=null?'OUI ('+fmt(mez)+' m²)':'NON'}</td></tr>
+          <tr><td>Sous-sol</td><td class="r">${ss!=null?'OUI ('+fmt(ss)+' m²)':'NON'}</td></tr>
+          <tr><td>Nombre de gondoles</td><td class="r">${gondoles!=null?gondoles:'—'}</td></tr></table>
+        <h2>Rideaux métalliques de devanture</h2>
+        <table>${ridRows||'<tr><td colspan="2">Aucun rideau.</td></tr>'}
+          <tr class="tot"><td>Nombre de rideaux : ${nbRid}</td><td class="r">Total : ${fmt(totalRid)} m²</td></tr></table>
+        <p style="margin-top:26px"><button onclick="window.print()">Imprimer</button></p>
+        </body></html>`;
+      const w = window.open('', '_blank');
+      if (!w) { alert('Autorisez les fenêtres pop-up pour imprimer le récapitulatif.'); return; }
+      w.document.write(html); w.document.close(); w.focus();
+      setTimeout(()=>{ try{ w.print(); }catch(e){} }, 350);
     }
   </script>
 </body>

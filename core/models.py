@@ -92,3 +92,6 @@ class RapportAnalyse(BaseModel):
     cotes_facade: list[float] = Field(default_factory=list)
     # Rideaux SUPECO détectés automatiquement (cadre jaune de la devanture) : à vérifier
     rideaux_proposes: list[dict] = Field(default_factory=list)
+    # Infos cartouche (SUPECO) : nom du projet/magasin et nombre de gondoles
+    projet: str | None = None
+    nb_gondoles: int | None = None
