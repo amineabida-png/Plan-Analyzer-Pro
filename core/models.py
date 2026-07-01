@@ -95,3 +95,6 @@ class RapportAnalyse(BaseModel):
     # Infos cartouche (SUPECO) : nom du projet/magasin et nombre de gondoles
     projet: str | None = None
     nb_gondoles: int | None = None
+    # Niveaux présents (d'après les titres) et surface annoncée sur le plan
+    niveaux_presents: list[str] = Field(default_factory=list)
+    surface_annoncee: float | None = None

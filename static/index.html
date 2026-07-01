@@ -427,18 +427,33 @@
       if (!box) return;
       if (clientType !== 'supeco' || !lastReport) { box.innerHTML = ''; return; }
       const pieces = lastReport.pieces || [];
+      const presents = lastReport.niveaux_presents || [];
+      const annoncee = lastReport.surface_annoncee;
       const surfNiv = (prefixes) => {
         const p = pieces.find(p => prefixes.some(pr => p.nom.toUpperCase().startsWith(pr)));
         return p ? p.surface_m2 : null;
       };
+      const present = (names) => presents.some(n => names.some(nm => n.toUpperCase().startsWith(nm)));
       const rdc = surfNiv(['RDC', 'REZ']);
       const mez = surfNiv(['MEZZANINE']);
       const ss  = surfNiv(['SOUS']);
+      const mezP = present(['MEZZANINE']);
+      const ssP  = present(['SOUS']);
       const totalSurf = pieces.reduce((s,p) => s + p.surface_m2, 0);
       const nbRid = rideauListe.length;
       const totalRid = rideauListe.reduce((s,m) => s + m.l*m.h*m.q, 0);
       const fmt = (v) => v.toLocaleString('fr-FR',{minimumFractionDigits:2});
-      const ligneNiv = (label, v) => `<tr><td>${label}</td><td class="num">${v!=null ? fmt(v)+' m²' : '<span class="sub">— absent</span>'}</td></tr>`;
+      // Affichage d'un niveau : mesuré / présent non mesuré / absent
+      const ligneNiv = (label, v, estPresent) => {
+        let txt;
+        if (v != null && v > 0) txt = fmt(v)+' m²';
+        else if (estPresent || (v != null)) txt = '<span class="sub">présent (non mesuré)</span>';
+        else txt = '<span class="sub">— absent</span>';
+        return `<tr><td>${label}</td><td class="num">${txt}</td></tr>`;
+      };
+      const totalTxt = totalSurf > 0 ? fmt(totalSurf)+' m²'
+                       : (annoncee ? fmt(annoncee)+' m² <span class="sub">(annoncée)</span>' : '—');
+      const ouiNon = (p, v) => p ? (v>0 ? 'OUI ('+fmt(v)+' m²)' : 'OUI (surface non mesurée)') : 'NON';
       const detailRid = rideauListe.map((m,i) =>
         `<div class="sub">Rideau ${i+1} : ${m.l} × ${m.h} m${m.q>1?' × '+m.q:''} = ${fmt(m.l*m.h*m.q)} m²</div>`).join('');
       const projet = lastReport.projet;
@@ -449,13 +464,14 @@
           ${gondoles!=null?`<p class="sub" style="margin-bottom:.6rem">Nombre de gondoles : <b>${gondoles}</b></p>`:''}
           <h3 style="font-size:1rem;margin:.4rem 0">Surfaces par niveau</h3>
           <table style="margin-bottom:.6rem"><tbody>
-            ${ligneNiv('RDC', rdc)}
-            ${ligneNiv('Mezzanine', mez)}
-            ${ligneNiv('Sous-sol', ss)}
-            <tr style="border-top:1px solid var(--border)"><td><b>Surface utile totale</b></td><td class="num"><b>${fmt(totalSurf)} m²</b></td></tr>
+            ${ligneNiv('RDC', rdc, present(['RDC','REZ']))}
+            ${ligneNiv('Mezzanine', mez, mezP)}
+            ${ligneNiv('Sous-sol', ss, ssP)}
+            <tr style="border-top:1px solid var(--border)"><td><b>Surface utile totale</b></td><td class="num"><b>${totalTxt}</b></td></tr>
           </tbody></table>
-          <p style="margin:.3rem 0">Mezzanine : <b>${mez!=null ? 'OUI ('+fmt(mez)+' m²)' : 'NON'}</b></p>
-          <p style="margin:.3rem 0">Sous-sol : <b>${ss!=null ? 'OUI ('+fmt(ss)+' m²)' : 'NON'}</b></p>
+          ${annoncee?`<p class="sub" style="margin:.2rem 0">Surface annoncée sur le plan : <b>${fmt(annoncee)} m²</b></p>`:''}
+          <p style="margin:.3rem 0">Mezzanine : <b>${ouiNon(mezP, mez)}</b></p>
+          <p style="margin:.3rem 0">Sous-sol : <b>${ouiNon(ssP, ss)}</b></p>
           <h3 style="font-size:1rem;margin:.8rem 0 .3rem">Rideaux métalliques de devanture</h3>
           ${nbRid ? detailRid : '<div class="sub">Aucun rideau composé. Utilisez la section ci-dessus.</div>'}
           <p style="margin-top:.4rem;font-size:1.1rem">Nombre de rideaux : <b>${nbRid}</b> — Total : <b>${fmt(totalRid)} m²</b></p>
@@ -469,11 +485,15 @@
     function printRecap() {
       if (!lastReport) return;
       const pieces = lastReport.pieces || [];
+      const presents = lastReport.niveaux_presents || [];
+      const annoncee = lastReport.surface_annoncee;
       const surfNiv = (prefixes) => {
         const p = pieces.find(p => prefixes.some(pr => p.nom.toUpperCase().startsWith(pr)));
         return p ? p.surface_m2 : null;
       };
+      const present = (names) => presents.some(n => names.some(nm => n.toUpperCase().startsWith(nm)));
       const rdc = surfNiv(['RDC','REZ']), mez = surfNiv(['MEZZANINE']), ss = surfNiv(['SOUS']);
+      const mezP = present(['MEZZANINE']), ssP = present(['SOUS']);
       const totalSurf = pieces.reduce((s,p)=>s+p.surface_m2,0);
       const nbRid = rideauListe.length;
       const totalRid = rideauListe.reduce((s,m)=>s+m.l*m.h*m.q,0);
@@ -482,7 +502,15 @@
       const gondoles = lastReport.nb_gondoles;
       const fmt = (v)=>v.toLocaleString('fr-FR',{minimumFractionDigits:2});
       const date = new Date().toLocaleDateString('fr-FR');
-      const lNiv = (label,v)=>`<tr><td>${label}</td><td class="r">${v!=null?fmt(v)+' m²':'— absent'}</td></tr>`;
+      const lNiv = (label,v,estP)=>{
+        let t;
+        if (v!=null && v>0) t = fmt(v)+' m²';
+        else if (estP || v!=null) t = 'présent (non mesuré)';
+        else t = '— absent';
+        return `<tr><td>${label}</td><td class="r">${t}</td></tr>`;
+      };
+      const totalTxt = totalSurf>0 ? fmt(totalSurf)+' m²' : (annoncee? fmt(annoncee)+' m² (annoncée)' : '—');
+      const ouiNon = (p,v)=> p ? (v>0?'OUI ('+fmt(v)+' m²)':'OUI (surface non mesurée)') : 'NON';
       const ridRows = rideauListe.map((m,i)=>
         `<tr><td>Rideau ${i+1}</td><td class="r">${m.l} × ${m.h} m${m.q>1?' × '+m.q:''} = ${fmt(m.l*m.h*m.q)} m²</td></tr>`).join('');
       const html = `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8">
@@ -501,11 +529,12 @@
         <h1>Récapitulatif SUPECO${projet?' — '+projet:''}</h1>
         <p class="meta">Date : ${date}${hsp?' &nbsp;|&nbsp; HSP : '+fmt(hsp)+' m':''}${gondoles!=null?' &nbsp;|&nbsp; Gondoles : '+gondoles:''}</p>
         <h2>Surfaces par niveau</h2>
-        <table>${lNiv('RDC',rdc)}${lNiv('Mezzanine',mez)}${lNiv('Sous-sol',ss)}
-          <tr class="tot"><td>Surface utile totale</td><td class="r">${fmt(totalSurf)} m²</td></tr></table>
+        <table>${lNiv('RDC',rdc,present(['RDC','REZ']))}${lNiv('Mezzanine',mez,mezP)}${lNiv('Sous-sol',ss,ssP)}
+          <tr class="tot"><td>Surface utile totale</td><td class="r">${totalTxt}</td></tr></table>
+        ${annoncee?`<p class="meta" style="margin-top:8px">Surface annoncée sur le plan : <b>${fmt(annoncee)} m²</b></p>`:''}
         <table style="margin-top:14px">
-          <tr><td>Mezzanine</td><td class="r">${mez!=null?'OUI ('+fmt(mez)+' m²)':'NON'}</td></tr>
-          <tr><td>Sous-sol</td><td class="r">${ss!=null?'OUI ('+fmt(ss)+' m²)':'NON'}</td></tr>
+          <tr><td>Mezzanine</td><td class="r">${ouiNon(mezP,mez)}</td></tr>
+          <tr><td>Sous-sol</td><td class="r">${ouiNon(ssP,ss)}</td></tr>
           <tr><td>Nombre de gondoles</td><td class="r">${gondoles!=null?gondoles:'—'}</td></tr></table>
         <h2>Rideaux métalliques de devanture</h2>
         <table>${ridRows||'<tr><td colspan="2">Aucun rideau.</td></tr>'}

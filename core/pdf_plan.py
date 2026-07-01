@@ -270,16 +270,23 @@ def _analyser_pdf_plan_impl(chemin: str, echelle: int | None = None) -> RapportA
         except Exception:  # noqa: BLE001
             continue
 
-    # 3) Ne garder que les pages de PLAN avec un niveau reconnu et une surface.
-    #    Les pages sans niveau (cartouche, façade, photos) sont ignorées ici.
+    # 3) Niveaux PRÉSENTS d'après les titres (indépendant de toute mesure).
+    ordre = ["Sous-sol", "RDC", "Mezzanine", "Étage", "Niveau principal"]
+    niveaux_presents = []
+    for p in pages_info:
+        if p["niveau"] and p["niveau"] not in niveaux_presents:
+            niveaux_presents.append(p["niveau"])
+
+    # Pages exploitables pour la MESURE de surface (échelle + région trouvées)
     plans = [p for p in pages_info if p["niveau"] and p["surface"] >= _SURF_MIN]
-    if not plans:  # repli : pas de niveau lu -> prendre les pages avec surface
+    if not plans:  # repli : pas de niveau lu mais une surface -> niveau principal
         plans = [p for p in pages_info if p["surface"] >= 20.0]
         for p in plans:
             p["niveau"] = p["niveau"] or "Niveau principal"
+            if p["niveau"] not in niveaux_presents:
+                niveaux_presents.append(p["niveau"])
 
-    # 4) Par niveau : préférer une page 'existant' (plan propre), puis la surface
-    #    la plus proche de l'annoncée.
+    # 4) Surface mesurée par niveau : meilleure page (existant + proche annoncée)
     niveaux: dict[str, dict] = {}
     for p in plans:
         niv = p["niveau"]
@@ -291,50 +298,69 @@ def _analyser_pdf_plan_impl(chemin: str, echelle: int | None = None) -> RapportA
             niveaux[niv] = {"score": score, "surface": p["surface"],
                             "page": p["page"]}
 
+    # Liste ordonnée de tous les niveaux à afficher (présents, mesurés ou non)
+    tous_niveaux = sorted(set(niveaux_presents) | set(niveaux.keys()),
+                          key=lambda n: ordre.index(n) if n in ordre else 99)
+
     pieces: list[PieceDetectee] = []
     lignes: list[MetreLigne] = []
     alertes: list[str] = []
 
-    if not niveaux:
-        alertes.append("Aucun plan de niveau exploitable détecté (cotes absentes "
-                       "ou plan trop chargé). Surfaces non calculées ; le reste "
-                       "(rideaux, projet) est fourni ci-dessous.")
+    if not tous_niveaux:
+        alertes.append("Aucun plan de niveau détecté. Le reste (rideaux, projet) "
+                       "est fourni ci-dessous s'il est disponible.")
 
     total = 0.0
-    for niv, info in sorted(niveaux.items()):
-        s = round(info["surface"], 2)
-        total += s
-        pieces.append(PieceDetectee(
-            id=str(uuid.uuid4())[:8], nom=f"{niv} — surface utile",
-            surface_m2=s, perimetre_m=0.0, surface_plafond_m2=s,
-            surface_carrelage_m2=s, surface_peinture_murs_m2=0.0, contour=[]))
-        lignes.append(MetreLigne(
-            poste=f"Surface utile — {niv}", type_ouvrage=TypeOuvrage.DALLE,
-            quantite=s, unite="m2",
-            detail=f"page {info['page']}, échelle calibrée sur les cotes"))
+    for niv in tous_niveaux:
+        info = niveaux.get(niv)
+        if info:  # niveau MESURÉ
+            s = round(info["surface"], 2)
+            total += s
+            pieces.append(PieceDetectee(
+                id=str(uuid.uuid4())[:8], nom=f"{niv} — surface utile",
+                surface_m2=s, perimetre_m=0.0, surface_plafond_m2=s,
+                surface_carrelage_m2=s, surface_peinture_murs_m2=0.0, contour=[]))
+            lignes.append(MetreLigne(
+                poste=f"Surface utile — {niv}", type_ouvrage=TypeOuvrage.DALLE,
+                quantite=s, unite="m2",
+                detail=f"page {info['page']}, échelle calibrée sur les cotes"))
+        else:  # niveau PRÉSENT mais non mesurable (pas de cotes exploitables)
+            pieces.append(PieceDetectee(
+                id=str(uuid.uuid4())[:8], nom=f"{niv} — surface utile",
+                surface_m2=0.0, perimetre_m=0.0, surface_plafond_m2=0.0,
+                surface_carrelage_m2=0.0, surface_peinture_murs_m2=0.0, contour=[]))
 
-    if len(niveaux) > 1:
+    mesures = [n for n in tous_niveaux if n in niveaux]
+    if len(mesures) > 1:
         lignes.append(MetreLigne(
             poste="Surface utile TOTALE (tous niveaux)",
             type_ouvrage=TypeOuvrage.DALLE, quantite=round(total, 2), unite="m2",
-            detail=f"{len(niveaux)} niveaux"))
+            detail=f"{len(mesures)} niveaux mesurés"))
 
-    # Niveaux détectés / non détectés
-    if niveaux:
-        noms = list(niveaux.keys())
-        alertes.append("Niveaux détectés : " + ", ".join(noms) + ".")
+    # Niveaux présents / manquants
+    if tous_niveaux:
+        alertes.append("Niveaux présents : " + ", ".join(tous_niveaux) + ".")
+        non_mesures = [n for n in tous_niveaux if n not in niveaux]
+        if non_mesures:
+            alertes.append("Surface non mesurée pour : " + ", ".join(non_mesures)
+                           + " (plan sans cotes exploitables). "
+                           "Voir la surface annoncée ci-dessous.")
         for attendu in ("mezzanine", "sous-sol"):
-            if not any(attendu in n.lower() for n in noms):
+            if not any(attendu in n.lower() for n in tous_niveaux):
                 alertes.append(f"Aucun plan « {attendu} » trouvé dans le PDF.")
 
-    # Recoupement avec la surface annoncée
-    if surface_annoncee and niveaux:
-        s_princ = max(info["surface"] for info in niveaux.values())
-        ecart = abs(s_princ - surface_annoncee) / surface_annoncee * 100
-        msg = (f"Surface annoncée sur le plan : {surface_annoncee} m² | "
-               f"calculée : {round(s_princ,1)} m² (écart {ecart:.0f} %).")
-        if ecart > 15:
-            msg += " ⚠ Écart important : vérifiez l'échelle et le plan retenu."
+    # Surface annoncée sur le plan (toujours reportée si lue)
+    if surface_annoncee:
+        if niveaux:
+            s_princ = max(info["surface"] for info in niveaux.values())
+            ecart = abs(s_princ - surface_annoncee) / surface_annoncee * 100
+            msg = (f"Surface annoncée sur le plan : {surface_annoncee} m² | "
+                   f"calculée : {round(s_princ,1)} m² (écart {ecart:.0f} %).")
+            if ecart > 15:
+                msg += " ⚠ Écart important : vérifiez l'échelle et le plan retenu."
+        else:
+            msg = (f"Surface annoncée sur le plan : {surface_annoncee} m² "
+                   "(reprise du cartouche ; non mesurée faute de cotes).")
         alertes.append(msg)
 
     # Rideau métallique : détection AUTO via le cadre jaune SUPECO + cotes réelles
@@ -363,7 +389,8 @@ def _analyser_pdf_plan_impl(chemin: str, echelle: int | None = None) -> RapportA
 
     return _rapport(chemin, pieces, lignes, hsp or 2.70, alertes,
                     hsp_detectee=bool(hsp), cotes=cotes, rideaux=rideaux,
-                    projet=_projet(doc), gondoles=_gondoles(cartouches))
+                    projet=_projet(doc), gondoles=_gondoles(cartouches),
+                    niveaux_presents=tous_niveaux, surface_annoncee=surface_annoncee)
 
 
 # ---------------------------------------------------------------- helpers
@@ -371,13 +398,15 @@ _MM = 25.4 / 72.0  # mm papier par point
 
 
 def _rapport(chemin, pieces, lignes, hsp, alertes, hsp_detectee=False,
-             cotes=None, rideaux=None, projet=None, gondoles=None):
+             cotes=None, rideaux=None, projet=None, gondoles=None,
+             niveaux_presents=None, surface_annoncee=None):
     return RapportAnalyse(
         fichier=chemin, unite_dessin=Unite.INCONNU, facteur_vers_metre=0.0,
         nb_calques=0, calques=[], calques_detail=[], ouvrages=[],
         pieces=pieces, hsp_m=(hsp if hsp else 2.70), hsp_detectee=hsp_detectee,
         mapping_ia={}, metre=lignes, alertes=alertes, cotes_facade=cotes or [],
-        rideaux_proposes=rideaux or [], projet=projet, nb_gondoles=gondoles)
+        rideaux_proposes=rideaux or [], projet=projet, nb_gondoles=gondoles,
+        niveaux_presents=niveaux_presents or [], surface_annoncee=surface_annoncee)
 
 
 def _echelle(page, vmin: int = 100) -> float | None:
