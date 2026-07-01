@@ -219,6 +219,18 @@ def _gondoles(cartouches: list[str]) -> int | None:
 
 
 def analyser_pdf_plan(chemin: str, echelle: int | None = None) -> RapportAnalyse:
+    """Analyse un dossier PDF de plan (surfaces, niveaux, rideaux SUPECO).
+    Sécurisé : toute erreur imprévue renvoie un rapport lisible, jamais un plantage."""
+    try:
+        return _analyser_pdf_plan_impl(chemin, echelle)
+    except Exception as e:  # noqa: BLE001
+        return _rapport(
+            chemin, [], [], 2.70,
+            [f"Analyse incomplète ({type(e).__name__}). Le PDF est peut-être "
+             "inhabituel : réessayez, ou envoyez ce plan pour diagnostic."])
+
+
+def _analyser_pdf_plan_impl(chemin: str, echelle: int | None = None) -> RapportAnalyse:
     import fitz
 
     try:
@@ -284,9 +296,9 @@ def analyser_pdf_plan(chemin: str, echelle: int | None = None) -> RapportAnalyse
     alertes: list[str] = []
 
     if not niveaux:
-        alertes.append("Aucun plan de niveau exploitable détecté dans ce PDF "
-                       "(cotes absentes ou plan trop chargé).")
-        return _rapport(chemin, pieces, lignes, hsp, alertes)
+        alertes.append("Aucun plan de niveau exploitable détecté (cotes absentes "
+                       "ou plan trop chargé). Surfaces non calculées ; le reste "
+                       "(rideaux, projet) est fourni ci-dessous.")
 
     total = 0.0
     for niv, info in sorted(niveaux.items()):
@@ -308,14 +320,15 @@ def analyser_pdf_plan(chemin: str, echelle: int | None = None) -> RapportAnalyse
             detail=f"{len(niveaux)} niveaux"))
 
     # Niveaux détectés / non détectés
-    noms = list(niveaux.keys())
-    alertes.append("Niveaux détectés : " + ", ".join(noms) + ".")
-    for attendu in ("mezzanine", "sous-sol"):
-        if not any(attendu in n.lower() for n in noms):
-            alertes.append(f"Aucun plan « {attendu} » trouvé dans le PDF.")
+    if niveaux:
+        noms = list(niveaux.keys())
+        alertes.append("Niveaux détectés : " + ", ".join(noms) + ".")
+        for attendu in ("mezzanine", "sous-sol"):
+            if not any(attendu in n.lower() for n in noms):
+                alertes.append(f"Aucun plan « {attendu} » trouvé dans le PDF.")
 
     # Recoupement avec la surface annoncée
-    if surface_annoncee:
+    if surface_annoncee and niveaux:
         s_princ = max(info["surface"] for info in niveaux.values())
         ecart = abs(s_princ - surface_annoncee) / surface_annoncee * 100
         msg = (f"Surface annoncée sur le plan : {surface_annoncee} m² | "
@@ -362,8 +375,8 @@ def _rapport(chemin, pieces, lignes, hsp, alertes, hsp_detectee=False,
     return RapportAnalyse(
         fichier=chemin, unite_dessin=Unite.INCONNU, facteur_vers_metre=0.0,
         nb_calques=0, calques=[], calques_detail=[], ouvrages=[],
-        pieces=pieces, hsp_m=hsp, hsp_detectee=hsp_detectee, mapping_ia={},
-        metre=lignes, alertes=alertes, cotes_facade=cotes or [],
+        pieces=pieces, hsp_m=(hsp if hsp else 2.70), hsp_detectee=hsp_detectee,
+        mapping_ia={}, metre=lignes, alertes=alertes, cotes_facade=cotes or [],
         rideaux_proposes=rideaux or [], projet=projet, nb_gondoles=gondoles)
 
 
