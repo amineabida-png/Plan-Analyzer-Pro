@@ -439,7 +439,10 @@
       const ss  = surfNiv(['SOUS']);
       const mezP = present(['MEZZANINE']);
       const ssP  = present(['SOUS']);
-      const totalSurf = pieces.reduce((s,p) => s + p.surface_m2, 0);
+      const nonNuls = pieces.filter(p => p.surface_m2 > 0);
+      const tousAnnonces = annoncee && nonNuls.length > 0 &&
+                           nonNuls.every(p => Math.abs(p.surface_m2 - annoncee) < 0.5);
+      const totalSurf = tousAnnonces ? annoncee : pieces.reduce((s,p) => s + p.surface_m2, 0);
       const nbRid = rideauListe.length;
       const totalRid = rideauListe.reduce((s,m) => s + m.l*m.h*m.q, 0);
       const fmt = (v) => v.toLocaleString('fr-FR',{minimumFractionDigits:2});
@@ -494,7 +497,10 @@
       const present = (names) => presents.some(n => names.some(nm => n.toUpperCase().startsWith(nm)));
       const rdc = surfNiv(['RDC','REZ']), mez = surfNiv(['MEZZANINE']), ss = surfNiv(['SOUS']);
       const mezP = present(['MEZZANINE']), ssP = present(['SOUS']);
-      const totalSurf = pieces.reduce((s,p)=>s+p.surface_m2,0);
+      const nonNuls = pieces.filter(p => p.surface_m2 > 0);
+      const tousAnnonces = annoncee && nonNuls.length > 0 &&
+                           nonNuls.every(p => Math.abs(p.surface_m2 - annoncee) < 0.5);
+      const totalSurf = tousAnnonces ? annoncee : pieces.reduce((s,p)=>s+p.surface_m2,0);
       const nbRid = rideauListe.length;
       const totalRid = rideauListe.reduce((s,m)=>s+m.l*m.h*m.q,0);
       const hsp = lastReport.hsp_m;
