@@ -161,17 +161,50 @@ def _rideaux_supeco_impl(doc, cartouches):
     return []
 
 
-def _projet(cartouches: list[str]) -> str | None:
-    """Nom du projet/magasin lu sur le cartouche (valeur la plus fréquente)."""
+def _projet(doc) -> str | None:
+    """Nom EXACT du projet/magasin lu sur le cartouche (case PROJET, bas-droite).
+    OCR ciblé sur chaque page ; on retient le nom complet le plus FRÉQUENT
+    (les lectures correctes se répètent, le bruit OCR est unique)."""
     from collections import Counter
-    noms = []
-    for c in cartouches:
-        m = re.search(r"projet\s*:?\s*([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ0-9\-]{2,})", c, re.I)
-        if m:
-            nom = m.group(1).upper()
-            if nom not in ("RDC", "MEZZANINE", "SOUS", "ETAGE", "SUPECO"):
-                noms.append(nom)
-    return Counter(noms).most_common(1)[0][0] if noms else None
+    try:
+        import fitz
+        import numpy as np
+        import cv2
+        import pytesseract
+    except Exception:  # noqa: BLE001
+        return None
+    cands = []
+    for i in range(doc.page_count):
+        try:
+            page = doc[i]
+            r = page.rect
+            clip = fitz.Rect(r.width * 0.70, r.height * 0.90, r.width, r.height)
+            pix = page.get_pixmap(matrix=fitz.Matrix(4, 4), clip=clip)
+            img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+                pix.height, pix.width, pix.n)
+            if pix.n >= 3:
+                img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+            t = " ".join(pytesseract.image_to_string(img, lang="fra+eng").split())
+        except Exception:  # noqa: BLE001
+            continue
+        m = re.search(r"projet\s*:?\s*(.+)", t, re.I)
+        if not m:
+            continue
+        rest = re.split(r"\b(date|nbr|gondoles?|superficie|surface|plan|supeco)\b",
+                        m.group(1), flags=re.I)[0]
+        nom = re.sub(r"[^A-Za-zÀ-ÿ0-9\- ]", " ", rest)
+        nom = re.sub(r"\s+", " ", nom).strip().upper()
+        if 2 < len(nom) < 40:
+            cands.append(nom)
+            # Arrêt anticipé : 3 lectures d'un nom complet suffisent au vote
+            if len([n for n in cands if len(n.split()) > 1]) >= 3:
+                break
+    if not cands:
+        return None
+    multi = [n for n in cands if len(n.split()) > 1]
+    if multi:  # nom complet le plus fréquent
+        return Counter(multi).most_common(1)[0][0]
+    return Counter(cands).most_common(1)[0][0]
 
 
 def _gondoles(cartouches: list[str]) -> int | None:
@@ -317,7 +350,7 @@ def analyser_pdf_plan(chemin: str, echelle: int | None = None) -> RapportAnalyse
 
     return _rapport(chemin, pieces, lignes, hsp or 2.70, alertes,
                     hsp_detectee=bool(hsp), cotes=cotes, rideaux=rideaux,
-                    projet=_projet(cartouches), gondoles=_gondoles(cartouches))
+                    projet=_projet(doc), gondoles=_gondoles(cartouches))
 
 
 # ---------------------------------------------------------------- helpers
