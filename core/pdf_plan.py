@@ -40,8 +40,7 @@ def _cotes_facade(doc, cartouches: list[str]) -> list[float]:
     l'utilisateur s'en sert pour composer la largeur et la hauteur du rideau."""
     vals = set()
     for i in range(doc.page_count):
-        c = cartouches[i].lower()
-        if "facade" not in c and "façade" not in c:
+        if not _est_facade(doc[i], cartouches[i]):
             continue
         for w in doc[i].get_text("words"):
             m = re.fullmatch(r"(\d{2,4})", w[4].strip())
@@ -87,12 +86,24 @@ def _est_jaune(fl) -> bool:
     return r > 0.7 and g > 0.55 and b < 0.55 and (r - b) > 0.35
 
 
+def _est_facade(page, cartouche: str) -> bool:
+    """Une page est une façade si son cartouche le dit OU si elle contient des
+    panneaux « FIXE » (propre aux devantures SUPECO). Robuste même si l'OCR du
+    cartouche échoue."""
+    c = (cartouche or "").lower()
+    if "facade" in c or "façade" in c:
+        return True
+    try:
+        return page.get_text("text").upper().count("FIXE") >= 2
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _rideaux_supeco_impl(doc, cartouches):
     for i in range(doc.page_count):
-        c = cartouches[i].lower()
-        if "facade" not in c and "façade" not in c:
-            continue
         page = doc[i]
+        if not _est_facade(page, cartouches[i]):
+            continue
         f = _echelle(page, vmin=40)
         if not f:
             continue
@@ -155,7 +166,51 @@ def _rideaux_supeco_impl(doc, cartouches):
             larg = round((b - a) * f, 2)
             if larg >= 0.8:  # ignore les petits interstices
                 out.append({"largeur_m": larg, "hauteur_m": h_ouv,
-                            "surface_m2": round(larg * h_ouv, 2)})
+                            "surface_m2": round(larg * h_ouv, 2), "approx": False})
+        if out:
+            return out
+    # Pas de cadre jaune : repli sur le VITRAGE BLEU (devanture SUPECO standard)
+    return _rideaux_bleu(doc, cartouches)
+
+
+def _rideaux_bleu(doc, cartouches):
+    """Repli : détecte les baies vitrées bleues de la devanture (quand pas de
+    cadre jaune). Approximatif — à vérifier/ajuster par l'utilisateur."""
+    for i in range(doc.page_count):
+        page = doc[i]
+        if not _est_facade(page, cartouches[i]):
+            continue
+        f = _echelle(page, vmin=40)
+        if not f:
+            continue
+        bleu = []
+        for d in page.get_drawings():
+            fl = d.get("fill")
+            r = d.get("rect")
+            if (fl and r and len(fl) >= 3 and fl[2] > 0.85 and fl[0] < 0.8
+                    and fl[1] > 0.7 and (r.x1 - r.x0) > 2 and (r.y1 - r.y0) > 2):
+                bleu.append(r)
+        if len(bleu) < 2:
+            continue
+        # Hauteur : cluster bas du vitrage (évite les fenêtres hautes) ; borne 3.6 m
+        ys1 = max(r.y1 for r in bleu)              # bas de la devanture
+        hauts = [r for r in bleu if ys1 - r.y1 < (3.6 / f)]
+        ys0 = min(r.y0 for r in hauts) if hauts else min(r.y0 for r in bleu)
+        h = round(min((ys1 - ys0) * f, 3.6), 2)
+        # Baies : intervalles horizontaux de vitrage, fusionnés si gap < 0.35 m
+        xs = sorted((r.x0, r.x1) for r in bleu)
+        inter = []
+        for a, b in xs:
+            if inter and a - inter[-1][1] < 0.35 / f:
+                inter[-1][1] = max(inter[-1][1], b)
+            else:
+                inter.append([a, b])
+        out = []
+        for a, b in inter:
+            larg = round((b - a) * f, 2)
+            if larg >= 0.8:
+                out.append({"largeur_m": larg, "hauteur_m": h,
+                            "surface_m2": round(larg * h, 2), "approx": True})
         if out:
             return out
     return []
@@ -368,10 +423,17 @@ def _analyser_pdf_plan_impl(chemin: str, echelle: int | None = None) -> RapportA
     rideaux = _rideaux_supeco(doc, cartouches)
     if rideaux:
         tot = sum(r["surface_m2"] for r in rideaux)
-        alertes.append(
-            f"Rideau métallique : {len(rideaux)} rideau(x) détecté(s) "
-            f"automatiquement (devanture jaune), total ≈ {round(tot,2)} m². "
-            "Pré-remplis ci-dessous — vérifiez/ajustez si besoin.")
+        approx = any(r.get("approx") for r in rideaux)
+        if approx:
+            alertes.append(
+                f"Rideau métallique : {len(rideaux)} baie(s) de devanture "
+                f"détectée(s) via le vitrage, total ≈ {round(tot,2)} m². "
+                "Estimation APPROXIMATIVE (pas de cadre jaune) — vérifiez/ajustez.")
+        else:
+            alertes.append(
+                f"Rideau métallique : {len(rideaux)} rideau(x) détecté(s) "
+                f"automatiquement (devanture jaune), total ≈ {round(tot,2)} m². "
+                "Pré-remplis ci-dessous — vérifiez/ajustez si besoin.")
     elif cotes:
         alertes.append(
             "Rideau métallique : devanture jaune non détectée. Composez les "
