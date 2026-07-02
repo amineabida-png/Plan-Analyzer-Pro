@@ -221,10 +221,9 @@ def _rideaux_bleu(doc, cartouches):
 
 
 def _projet(doc) -> str | None:
-    """Nom EXACT du projet/magasin lu sur le cartouche (case PROJET, bas-droite).
-    OCR ciblé sur chaque page ; on retient le nom complet le plus FRÉQUENT
-    (les lectures correctes se répètent, le bruit OCR est unique)."""
-    from collections import Counter
+    """Nom du projet lu sur la case PROJET de la PAGE 1 (table imprimée nette).
+    Binarisation Otsu + zoom élevé : bien plus fiable que le bas-droite garbagé,
+    et 1 seul OCR (rapide). Repli sur d'autres pages si la 1re échoue."""
     try:
         import fitz
         import numpy as np
@@ -232,38 +231,52 @@ def _projet(doc) -> str | None:
         import pytesseract
     except Exception:  # noqa: BLE001
         return None
-    cands = []
-    for i in range(min(doc.page_count, 8)):  # projet lisible sur les 1res pages
+
+    def _lire(page, clip) -> str:
         try:
-            page = doc[i]
-            r = page.rect
-            clip = fitz.Rect(r.width * 0.70, r.height * 0.90, r.width, r.height)
-            pix = page.get_pixmap(matrix=fitz.Matrix(4, 4), clip=clip)
+            pix = page.get_pixmap(matrix=fitz.Matrix(5, 5), clip=clip)
             img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
                 pix.height, pix.width, pix.n)
             if pix.n >= 3:
                 img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-            t = " ".join(pytesseract.image_to_string(img, lang="fra+eng").split())
+            _, bw = cv2.threshold(img, 0, 255,
+                                  cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            return " ".join(pytesseract.image_to_string(
+                bw, lang="fra+eng", config="--psm 7").split())
         except Exception:  # noqa: BLE001
-            continue
+            return ""
+
+    def _extraire(t: str) -> str | None:
         m = re.search(r"projet\s*:?\s*(.+)", t, re.I)
-        if not m:
-            continue
-        rest = re.split(r"\b(date|nbr|gondoles?|superficie|surface|plan|supeco)\b",
-                        m.group(1), flags=re.I)[0]
+        rest = m.group(1) if m else t
+        rest = re.split(r"\b(date|nbr|gondoles?|superficie|surface|plan|"
+                        r"supeco|code)\b", rest, flags=re.I)[0]
         nom = re.sub(r"[^A-Za-zÀ-ÿ0-9\- ]", " ", rest)
         nom = re.sub(r"\s+", " ", nom).strip().upper()
-        if 2 < len(nom) < 40:
-            cands.append(nom)
-            # Arrêt anticipé : 3 lectures d'un nom complet suffisent au vote
-            if len([n for n in cands if len(n.split()) > 1]) >= 3:
-                break
-    if not cands:
-        return None
-    multi = [n for n in cands if len(n.split()) > 1]
-    if multi:  # nom complet le plus fréquent
-        return Counter(multi).most_common(1)[0][0]
-    return Counter(cands).most_common(1)[0][0]
+        return nom if 3 < len(nom) < 40 else None
+
+    # 1) Page 1 : case PROJET en haut-gauche (table imprimée nette)
+    try:
+        r = doc[0].rect
+        nom = _extraire(_lire(doc[0],
+                              fitz.Rect(0, r.height * 0.17,
+                                        r.width * 0.5, r.height * 0.23)))
+        if nom:
+            return nom
+    except Exception:  # noqa: BLE001
+        pass
+    # 2) Repli : case PROJET bas-droite des pages suivantes (max 4)
+    for i in range(1, min(doc.page_count, 5)):
+        try:
+            r = doc[i].rect
+            nom = _extraire(_lire(doc[i],
+                                  fitz.Rect(r.width * 0.68, r.height * 0.90,
+                                            r.width, r.height)))
+            if nom and len(nom.split()) >= 1:
+                return nom
+        except Exception:  # noqa: BLE001
+            continue
+    return None
 
 
 def _gondoles(cartouches: list[str]) -> int | None:
@@ -299,12 +312,13 @@ def _analyser_pdf_plan_impl(chemin: str, echelle: int | None = None) -> RapportA
                         ["PDF illisible : fichier corrompu ou protégé."])
     hsp = _lire_hsp(doc)
 
-    # 1) Lire d'abord la surface annoncée et les cartouches de toutes les pages.
-    #    Plafond de sécurité : les niveaux SUPECO sont dans les premières pages ;
-    #    borner le travail évite tout dépassement de temps/mémoire serveur.
-    n_pages = min(doc.page_count, 40)
+    # 1) OCR des cartouches de toutes les pages (plafond de sécurité). Les
+    #    niveaux SUPECO se répètent d'une page à l'autre et l'OCR peut en rater
+    #    sur certaines pages : on lit donc TOUTES les pages (jusqu'au plafond)
+    #    pour ne perdre aucun niveau (ex. mezzanine lisible seulement plus loin).
+    #    Le coût reste borné et le vrai goulot (ancien _projet) est supprimé.
     cartouches = []
-    for i in range(n_pages):
+    for i in range(min(doc.page_count, 24)):
         try:
             cartouches.append(_ocr_cartouche(doc[i]))
         except Exception:  # noqa: BLE001
@@ -312,9 +326,10 @@ def _analyser_pdf_plan_impl(chemin: str, echelle: int | None = None) -> RapportA
     surface_annoncee = None
     for c in cartouches:
         surface_annoncee = surface_annoncee or _surface_annoncee(c)
+    n_pages = len(cartouches)
 
-    # 2) Analyser chaque page : niveau, propreté (existant), échelle, régions.
-    #    Une page corrompue est ignorée sans interrompre l'analyse.
+    # 2) Analyser chaque page OCR'ée : niveau, propreté (existant), échelle,
+    #    régions. Une page corrompue est ignorée sans interrompre l'analyse.
     pages_info = []
     for i in range(n_pages):
         try:

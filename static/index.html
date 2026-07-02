@@ -378,9 +378,13 @@
           ${m.auto ? '<span style="color:var(--accent)"> (auto-détecté)</span>' : ''}
           <button data-i="${i}" class="rid-del ghost" style="padding:.1rem .5rem;margin-left:.5rem">retirer</button></div>`).join('');
       const total = rideauListe.reduce((s,m)=>s+m.l*m.h*m.q, 0);
+      const autoRid = rideauListe.filter(m => m.auto);
+      const autoTot = autoRid.reduce((s,m)=>s+m.l*m.h*m.q, 0);
+      const banner = autoRid.length ? `<div style="background:rgba(46,204,113,.13);border:1px solid #2ecc71;border-radius:8px;padding:.6rem .8rem;margin-bottom:.7rem;color:#b7edcb">✅ <b>${autoRid.length} rideau(x) détecté(s) automatiquement</b> — total <b>${autoTot.toLocaleString('fr-FR',{minimumFractionDigits:2})} m²</b>. Déjà remplis ci-dessous : utilisez-les tels quels ou ajustez.</div>` : '';
       box.innerHTML = `
         <div style="border:1px solid var(--border);border-radius:10px;padding:1rem;margin-top:1rem">
           <h3 style="font-size:1.05rem;margin-bottom:.2rem">Rideau métallique de devanture</h3>
+          ${banner}
           <p class="sub" style="margin-bottom:.5rem">Choisissez le champ (Largeur ou Hauteur), puis cliquez les cotes à <b>additionner</b> (ex. L = 0,50 + 0,90 + 1,39). Vous pouvez aussi taper directement.</p>
           ${cotes.length ? `<div style="margin-bottom:.6rem">Cotes réelles de la façade : ${chips}</div>` : '<p class="sub">Aucune cote lue — saisissez les dimensions à la main.</p>'}
           <div class="row" style="align-items:flex-end">
